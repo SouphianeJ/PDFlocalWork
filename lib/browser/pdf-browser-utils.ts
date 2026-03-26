@@ -13,6 +13,12 @@ type BrowserSplitRequest = {
   outputPrefix: string;
 };
 
+type BrowserCompressOutput = {
+  bytes: Uint8Array;
+  originalSize: number;
+  compressedSize: number;
+};
+
 type BrowserSplitOutput = {
   fileName: string;
   bytes: Uint8Array;
@@ -97,6 +103,29 @@ export async function buildBrowserPdfFromFiles(files: File[]) {
     useObjectStreams: true,
     addDefaultPage: false,
   });
+}
+
+export async function compressBrowserPdfFile(sourceFile: File): Promise<BrowserCompressOutput> {
+  const sourceBytes = new Uint8Array(await sourceFile.arrayBuffer());
+  const sourcePdf = await PDFDocument.load(sourceBytes);
+  const optimizedPdf = await PDFDocument.create();
+  const copiedPages = await optimizedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+  for (const page of copiedPages) {
+    optimizedPdf.addPage(page);
+  }
+
+  const compressedBytes = await optimizedPdf.save({
+    useObjectStreams: true,
+    addDefaultPage: false,
+    updateFieldAppearances: false,
+    objectsPerTick: 100,
+  });
+
+  return {
+    bytes: compressedBytes,
+    originalSize: sourceBytes.byteLength,
+    compressedSize: compressedBytes.byteLength,
+  };
 }
 
 function parseRangeToken(token: string) {

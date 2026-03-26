@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import {
   buildBrowserPdfFromFiles,
+  compressBrowserPdfFile,
   deleteBrowserFiles,
   listBrowserDirectory,
   splitBrowserPdfFile,
@@ -30,9 +31,10 @@ type BrowserPickerState = {
   currentRelativePath: string;
 };
 
-type MergeDeletePrompt = {
+type SourceDeletePrompt = {
   outputFile: string;
   fileNames: string[];
+  kind: "merge" | "compress";
 };
 
 type PreviewState = {
@@ -53,6 +55,7 @@ declare global {
 
 const DEFAULT_OUTPUT_NAME = "merged-output.pdf";
 const DEFAULT_SPLIT_PREFIX = "split-output";
+const DEFAULT_COMPRESS_OUTPUT_NAME = "compressed-output.pdf";
 
 function isSupportedBrowserPicker() {
   return typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
@@ -202,9 +205,10 @@ export function PdfLocalWorkbench() {
   const [sourceMode, setSourceMode] = useState<SourceMode>("path");
   const [outputName, setOutputName] = useState(DEFAULT_OUTPUT_NAME);
   const [splitPrefix, setSplitPrefix] = useState(DEFAULT_SPLIT_PREFIX);
+  const [compressOutputName, setCompressOutputName] = useState(DEFAULT_COMPRESS_OUTPUT_NAME);
   const [splitMode, setSplitMode] = useState<SplitMode>("ranges");
   const [rangesInput, setRangesInput] = useState("1");
-  const [mergeDeletePrompt, setMergeDeletePrompt] = useState<MergeDeletePrompt | null>(null);
+  const [sourceDeletePrompt, setSourceDeletePrompt] = useState<SourceDeletePrompt | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [status, setStatus] = useState("Enter a folder path or use the browser picker.");
   const [isPending, startTransition] = useTransition();
@@ -427,9 +431,10 @@ export function PdfLocalWorkbench() {
           });
 
           await openFolderByPath(listing.path);
-          setMergeDeletePrompt({
+          setSourceDeletePrompt({
             outputFile: result.outputFile,
             fileNames: mergedFileNames,
+            kind: "merge",
           });
           setStatus(`Merged into ${result.outputFile}. You can now delete the original files used in this merge.`);
           return;
@@ -452,9 +457,10 @@ export function PdfLocalWorkbench() {
           mergedPdf,
         );
         await navigatePickerFolder(pickerState.currentRelativePath);
-        setMergeDeletePrompt({
+        setSourceDeletePrompt({
           outputFile: writtenFile,
           fileNames: mergedFileNames,
+          kind: "merge",
         });
         setStatus(`Merged into ${writtenFile}. You can now delete the original files used in this merge.`);
       } catch (error) {
@@ -464,7 +470,7 @@ export function PdfLocalWorkbench() {
   }
 
   async function handleDeleteMergedSources() {
-    if (!mergeDeletePrompt || !listing) {
+    if (!sourceDeletePrompt || !listing) {
       return;
     }
 
@@ -478,13 +484,13 @@ export function PdfLocalWorkbench() {
             },
             body: JSON.stringify({
               folderPath: listing.path,
-              fileNames: mergeDeletePrompt.fileNames,
+              fileNames: sourceDeletePrompt.fileNames,
             }),
           });
 
           await openFolderByPath(listing.path);
-          setMergeDeletePrompt(null);
-          setStatus(`Deleted ${result.deletedCount} original file(s) used for ${mergeDeletePrompt.outputFile}.`);
+          setSourceDeletePrompt(null);
+          setStatus(`Deleted ${result.deletedCount} original file(s) used for ${sourceDeletePrompt.outputFile}.`);
           return;
         }
 
@@ -492,10 +498,10 @@ export function PdfLocalWorkbench() {
           return;
         }
 
-        await deleteBrowserFiles(pickerState.currentHandle, mergeDeletePrompt.fileNames);
+        await deleteBrowserFiles(pickerState.currentHandle, sourceDeletePrompt.fileNames);
         await navigatePickerFolder(pickerState.currentRelativePath);
-        setMergeDeletePrompt(null);
-        setStatus(`Deleted ${mergeDeletePrompt.fileNames.length} original file(s) used for ${mergeDeletePrompt.outputFile}.`);
+        setSourceDeletePrompt(null);
+        setStatus(`Deleted ${sourceDeletePrompt.fileNames.length} original file(s) used for ${sourceDeletePrompt.outputFile}.`);
       } catch (error) {
         setStatus(getApiErrorMessage(error));
       }
@@ -503,12 +509,77 @@ export function PdfLocalWorkbench() {
   }
 
   function handleKeepMergedSources() {
-    if (!mergeDeletePrompt) {
+    if (!sourceDeletePrompt) {
       return;
     }
 
-    setStatus(`Kept the original files. ${mergeDeletePrompt.outputFile} remains available in this folder.`);
-    setMergeDeletePrompt(null);
+    setStatus(`Kept the original files. ${sourceDeletePrompt.outputFile} remains available in this folder.`);
+    setSourceDeletePrompt(null);
+  }
+
+  async function handleCompress() {
+    const target = selectedPdfFiles[0];
+    if (!target || !listing) {
+      setStatus("Select exactly one PDF file to compress.");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        if (sourceMode === "path") {
+          const result = await fetchJson<{ outputFile: string; originalSize: number; compressedSize: number }>(
+            "/api/pdf/compress",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                folderPath: listing.path,
+                fileName: target.name,
+                outputName: compressOutputName,
+              }),
+            },
+          );
+
+          await openFolderByPath(listing.path);
+          setSourceDeletePrompt({
+            outputFile: result.outputFile,
+            fileNames: [target.name],
+            kind: "compress",
+          });
+          setStatus(
+            `Compressed into ${result.outputFile} (${formatBytes(result.originalSize)} -> ${formatBytes(result.compressedSize)}).`,
+          );
+          return;
+        }
+
+        if (!pickerState) {
+          return;
+        }
+
+        const handle = await pickerState.currentHandle.getFileHandle(target.name);
+        const sourceFile = await handle.getFile();
+        const result = await compressBrowserPdfFile(sourceFile);
+        const writtenFile = await writeBrowserPdfFile(
+          pickerState.currentHandle,
+          compressOutputName || `${target.name.replace(/\.pdf$/i, "")}-compressed.pdf`,
+          result.bytes,
+        );
+
+        await navigatePickerFolder(pickerState.currentRelativePath);
+        setSourceDeletePrompt({
+          outputFile: writtenFile,
+          fileNames: [target.name],
+          kind: "compress",
+        });
+        setStatus(
+          `Compressed into ${writtenFile} (${formatBytes(result.originalSize)} -> ${formatBytes(result.compressedSize)}).`,
+        );
+      } catch (error) {
+        setStatus(getApiErrorMessage(error));
+      }
+    });
   }
 
   async function handleSplit() {
@@ -566,6 +637,7 @@ export function PdfLocalWorkbench() {
 
   const canMerge = mergeSelection.length > 0;
   const canSplit = selectedPdfFiles.length === 1;
+  const canCompress = selectedPdfFiles.length === 1;
 
   return (
     <main className="shell">
@@ -598,10 +670,12 @@ export function PdfLocalWorkbench() {
           </div>
         </div>
         <p className="status-line">{status}</p>
-        {mergeDeletePrompt ? (
+        {sourceDeletePrompt ? (
           <div className="confirm-banner">
             <p>
-              {`Merged file created: ${mergeDeletePrompt.outputFile}. Would you like to delete the ${mergeDeletePrompt.fileNames.length} original file(s) that were merged?`}
+              {sourceDeletePrompt.kind === "merge"
+                ? `Merged file created: ${sourceDeletePrompt.outputFile}. Would you like to delete the ${sourceDeletePrompt.fileNames.length} original file(s) that were merged?`
+                : `Compressed file created: ${sourceDeletePrompt.outputFile}. Would you like to delete the original PDF used to create this compressed version?`}
             </p>
             <div className="hero-actions">
               <button className="primary-button" onClick={() => void handleDeleteMergedSources()} disabled={isPending}>
@@ -750,7 +824,7 @@ export function PdfLocalWorkbench() {
             )}
           </section>
 
-          <div className="action-grid">
+          <div className="action-grid action-grid-three">
             <section className="action-card">
               <div className="section-header compact">
                 <h3>Merge</h3>
@@ -765,6 +839,27 @@ export function PdfLocalWorkbench() {
               </p>
               <button className="primary-button" onClick={() => void handleMerge()} disabled={!canMerge || isPending}>
                 Merge selected
+              </button>
+            </section>
+
+            <section className="action-card">
+              <div className="section-header compact">
+                <h3>Compress PDF</h3>
+                <span>{canCompress ? selectedPdfFiles[0].name : "Select 1 PDF"}</span>
+              </div>
+              <label className="inline-stack">
+                <span>Output file name</span>
+                <input
+                  value={compressOutputName}
+                  onChange={(event) => setCompressOutputName(event.target.value)}
+                  placeholder={DEFAULT_COMPRESS_OUTPUT_NAME}
+                />
+              </label>
+              <p className="helper-copy">
+                Rewrites the selected PDF into a leaner output and then offers to remove the original file.
+              </p>
+              <button className="primary-button" onClick={() => void handleCompress()} disabled={!canCompress || isPending}>
+                Compress selected PDF
               </button>
             </section>
 

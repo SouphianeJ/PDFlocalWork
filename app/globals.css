@@ -379,6 +379,10 @@ select:focus {
   gap: 18px;
 }
 
+.action-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .action-card,
 .preview-card {
   border-radius: var(--radius-md);

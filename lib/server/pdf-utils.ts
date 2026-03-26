@@ -13,6 +13,12 @@ type SplitRequest = {
   outputPrefix?: string;
 };
 
+type CompressRequest = {
+  folderPath: string;
+  fileName: string;
+  outputName?: string;
+};
+
 type PageRange = {
   start: number;
   end: number;
@@ -86,6 +92,38 @@ export async function mergePdfFiles(folderPath: string, fileNames: string[], req
   return {
     outputFile: outputName,
     outputPath,
+  };
+}
+
+export async function compressPdfFile({ folderPath, fileName, outputName }: CompressRequest) {
+  assertSafeFileNames([fileName]);
+
+  const sourcePath = path.join(folderPath, fileName);
+  const sourceBytes = await fs.readFile(sourcePath);
+  const sourcePdf = await PDFDocument.load(sourceBytes);
+  const optimizedPdf = await PDFDocument.create();
+  const copiedPages = await optimizedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+  for (const page of copiedPages) {
+    optimizedPdf.addPage(page);
+  }
+
+  const requestedName = normalizeFileName(outputName ?? "", `${getBaseName(fileName)}-compressed.pdf`);
+  const nextFileName = await findAvailablePdfName(folderPath, requestedName);
+  const outputPath = path.join(folderPath, nextFileName);
+  const compressedBytes = await optimizedPdf.save({
+    useObjectStreams: true,
+    addDefaultPage: false,
+    updateFieldAppearances: false,
+    objectsPerTick: 100,
+  });
+
+  await fs.writeFile(outputPath, compressedBytes);
+
+  return {
+    outputFile: nextFileName,
+    outputPath,
+    originalSize: sourceBytes.byteLength,
+    compressedSize: compressedBytes.byteLength,
   };
 }
 
