@@ -1,8 +1,9 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import { inflateSync } from "node:zlib";
 import sharp from "sharp";
-import { PDFDocument } from "pdf-lib";
-import { getBaseName, isSupportedPdfExtension, normalizeFileName } from "@/lib/shared";
+import { PDFDocument, PDFName, PDFRawStream, PDFRef } from "pdf-lib";
+import { getBaseName, isSupportedPdfExtension, normalizeFileName, type CompressQuality } from "@/lib/shared";
 import { assertSafeFileNames, findAvailablePdfName } from "@/lib/server/fs-utils";
 
 type SplitRequest = {
@@ -17,6 +18,13 @@ type CompressRequest = {
   folderPath: string;
   fileName: string;
   outputName?: string;
+  quality?: CompressQuality;
+};
+
+const QUALITY_TO_JPEG: Record<CompressQuality, number> = {
+  screen: 40,
+  ebook: 65,
+  printer: 85,
 };
 
 type PageRange = {
@@ -95,26 +103,75 @@ export async function mergePdfFiles(folderPath: string, fileNames: string[], req
   };
 }
 
-export async function compressPdfFile({ folderPath, fileName, outputName }: CompressRequest) {
+export async function compressPdfFile({ folderPath, fileName, outputName, quality }: CompressRequest) {
   assertSafeFileNames([fileName]);
-
   const sourcePath = path.join(folderPath, fileName);
   const sourceBytes = await fs.readFile(sourcePath);
-  const sourcePdf = await PDFDocument.load(sourceBytes);
-  const optimizedPdf = await PDFDocument.create();
-  const copiedPages = await optimizedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
-  for (const page of copiedPages) {
-    optimizedPdf.addPage(page);
+  const pdfDoc = await PDFDocument.load(sourceBytes);
+  const jpegQuality = QUALITY_TO_JPEG[quality ?? "ebook"];
+
+  for (const [ref, obj] of pdfDoc.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFRawStream)) continue;
+    const dict = obj.dict;
+    if (dict.get(PDFName.of("Subtype"))?.toString() !== "/Image") continue;
+    const filter = dict.get(PDFName.of("Filter"))?.toString();
+
+    const originalBytes = obj.getContents();
+
+    if (filter === "/DCTDecode") {
+      try {
+        const recompressed = await sharp(Buffer.from(originalBytes))
+          .jpeg({ quality: jpegQuality, mozjpeg: true })
+          .toBuffer();
+
+        if (recompressed.byteLength < originalBytes.byteLength) {
+          pdfDoc.context.assign(ref as PDFRef, PDFRawStream.of(dict, new Uint8Array(recompressed)));
+        }
+      } catch {
+        // skip images that sharp cannot process
+      }
+      continue;
+    }
+
+    if (filter === "/FlateDecode") {
+      try {
+        const width = Number(dict.get(PDFName.of("Width"))?.toString());
+        const height = Number(dict.get(PDFName.of("Height"))?.toString());
+        const bpc = Number(dict.get(PDFName.of("BitsPerComponent"))?.toString() || "8");
+        if (!width || !height || bpc !== 8) continue;
+
+        const cs = dict.get(PDFName.of("ColorSpace"))?.toString() ?? "";
+        let channels: 1 | 3;
+        if (cs.includes("DeviceGray")) channels = 1;
+        else if (cs.includes("DeviceRGB")) channels = 3;
+        else continue; // skip CMYK, ICCBased, Indexed, etc.
+
+        const rawPixels = inflateSync(Buffer.from(originalBytes));
+        if (rawPixels.byteLength !== width * height * channels) continue; // unexpected size, skip
+
+        const recompressed = await sharp(rawPixels, { raw: { width, height, channels } })
+          .jpeg({ quality: jpegQuality, mozjpeg: true })
+          .toBuffer();
+
+        if (recompressed.byteLength < originalBytes.byteLength) {
+          dict.set(PDFName.of("Filter"), PDFName.of("DCTDecode"));
+          dict.delete(PDFName.of("DecodeParms"));
+          if (channels === 3) dict.set(PDFName.of("ColorSpace"), PDFName.of("DeviceRGB"));
+          pdfDoc.context.assign(ref as PDFRef, PDFRawStream.of(dict, new Uint8Array(recompressed)));
+        }
+      } catch {
+        // skip images that cannot be processed
+      }
+      continue;
+    }
   }
 
   const requestedName = normalizeFileName(outputName ?? "", `${getBaseName(fileName)}-compressed.pdf`);
   const nextFileName = await findAvailablePdfName(folderPath, requestedName);
   const outputPath = path.join(folderPath, nextFileName);
-  const compressedBytes = await optimizedPdf.save({
+  const compressedBytes = await pdfDoc.save({
     useObjectStreams: true,
     addDefaultPage: false,
-    updateFieldAppearances: false,
-    objectsPerTick: 100,
   });
 
   await fs.writeFile(outputPath, compressedBytes);

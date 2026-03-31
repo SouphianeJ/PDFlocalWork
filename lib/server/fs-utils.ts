@@ -113,3 +113,28 @@ export async function deleteFilesFromDirectory(directoryPath: string, fileNames:
     deletedFiles: fileNames,
   };
 }
+
+export async function renameFileInDirectory(directoryPath: string, oldName: string, newName: string) {
+  assertSafeFileNames([oldName, newName]);
+
+  const oldPath = path.join(directoryPath, oldName);
+  const newPath = path.join(directoryPath, newName);
+
+  const stats = await fs.stat(oldPath);
+  if (!stats.isFile()) {
+    throw new Error(`"${oldName}" is not a file.`);
+  }
+
+  try {
+    await fs.access(newPath);
+    throw new Error(`A file named "${newName}" already exists.`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  await fs.rename(oldPath, newPath);
+
+  return { oldName, newName };
+}

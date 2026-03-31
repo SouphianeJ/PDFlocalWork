@@ -8,6 +8,12 @@ export const FILE_ACCEPT_ATTRIBUTE = ".pdf, .png, .jpg, .jpeg, .webp";
 
 export type SupportedMergeExtension = (typeof SUPPORTED_MERGE_EXTENSIONS)[number];
 export type SplitMode = "ranges" | "per-page";
+export type CompressQuality = "screen" | "ebook" | "printer";
+export const COMPRESS_QUALITY_OPTIONS: { value: CompressQuality; label: string }[] = [
+  { value: "screen", label: "Screen (smaller file, lower quality)" },
+  { value: "ebook", label: "Ebook (balanced)" },
+  { value: "printer", label: "Printer (larger file, higher quality)" },
+];
 
 export type DirectoryItem = {
   name: string;

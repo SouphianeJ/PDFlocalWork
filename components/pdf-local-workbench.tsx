@@ -1,19 +1,22 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   buildBrowserPdfFromFiles,
   compressBrowserPdfFile,
   deleteBrowserFiles,
   listBrowserDirectory,
+  renameBrowserFile,
   splitBrowserPdfFile,
   writeBrowserPdfFile,
 } from "@/lib/browser/pdf-browser-utils";
 import {
+  COMPRESS_QUALITY_OPTIONS,
   FILE_ACCEPT_ATTRIBUTE,
   SUPPORTED_IMAGE_EXTENSIONS,
   SUPPORTED_MERGE_EXTENSIONS,
   SUPPORTED_PDF_EXTENSIONS,
+  type CompressQuality,
   type DirectoryListing,
   type FileItem,
   type SplitMode,
@@ -206,10 +209,14 @@ export function PdfLocalWorkbench() {
   const [outputName, setOutputName] = useState(DEFAULT_OUTPUT_NAME);
   const [splitPrefix, setSplitPrefix] = useState(DEFAULT_SPLIT_PREFIX);
   const [compressOutputName, setCompressOutputName] = useState(DEFAULT_COMPRESS_OUTPUT_NAME);
+  const [compressQuality, setCompressQuality] = useState<CompressQuality>("ebook");
   const [splitMode, setSplitMode] = useState<SplitMode>("ranges");
   const [rangesInput, setRangesInput] = useState("1");
   const [sourceDeletePrompt, setSourceDeletePrompt] = useState<SourceDeletePrompt | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [renamingFile, setRenamingFile] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState("Enter a folder path or use the browser picker.");
   const [isPending, startTransition] = useTransition();
 
@@ -394,6 +401,100 @@ export function PdfLocalWorkbench() {
     await handlePreview(file);
   }
 
+  function handleFileDoubleClick(file: FileItem) {
+    setRenamingFile(file.name);
+    setRenameValue(file.name);
+    // Focus the input after React renders it
+    setTimeout(() => renameInputRef.current?.select(), 0);
+  }
+
+  async function commitRename() {
+    if (!renamingFile || !listing) return;
+    const newName = renameValue.trim();
+    if (!newName || newName === renamingFile) {
+      setRenamingFile(null);
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        if (sourceMode === "path") {
+          await fetchJson("/api/fs/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              folderPath: listing.path,
+              oldName: renamingFile,
+              newName,
+            }),
+          });
+          await openFolderByPath(listing.path);
+        } else if (pickerState) {
+          await renameBrowserFile(pickerState.currentHandle, renamingFile, newName);
+          await navigatePickerFolder(pickerState.currentRelativePath);
+        }
+        setStatus(`Renamed "${renamingFile}" to "${newName}".`);
+      } catch (error) {
+        setStatus(getApiErrorMessage(error));
+      } finally {
+        setRenamingFile(null);
+      }
+    });
+  }
+
+  function cancelRename() {
+    setRenamingFile(null);
+  }
+
+  async function handleDeleteFile(event: React.MouseEvent, file: FileItem) {
+    event.stopPropagation();
+    if (!listing) return;
+
+    startTransition(async () => {
+      try {
+        if (sourceMode === "path") {
+          await fetchJson("/api/fs/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ folderPath: listing.path, fileNames: [file.name] }),
+          });
+          await openFolderByPath(listing.path);
+        } else if (pickerState) {
+          await deleteBrowserFiles(pickerState.currentHandle, [file.name]);
+          await navigatePickerFolder(pickerState.currentRelativePath);
+        }
+        setSelection((prev) => prev.filter((n) => n !== file.name));
+        setStatus(`Deleted "${file.name}".`);
+      } catch (error) {
+        setStatus(getApiErrorMessage(error));
+      }
+    });
+  }
+
+  async function handleZipFolder(event: React.MouseEvent, folderPath: string, folderName: string) {
+    event.stopPropagation();
+    if (sourceMode !== "path") return;
+
+    startTransition(async () => {
+      try {
+        setStatus(`Zipping "${folderName}"…`);
+        const result = await fetchJson<{ zipPath: string; zipName: string; size: number; fileCount: number }>(
+          "/api/fs/zip",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: folderPath }),
+          },
+        );
+        setStatus(
+          `Created "${result.zipName}" (${formatBytes(result.size)}, ${result.fileCount} files).`,
+        );
+      } catch (error) {
+        setStatus(getApiErrorMessage(error));
+      }
+    });
+  }
+
   function handleParentNavigation() {
     if (!listing?.parentPath) {
       return;
@@ -409,16 +510,19 @@ export function PdfLocalWorkbench() {
 
   async function handleMerge() {
     if (mergeSelection.length === 0 || !listing) {
-      setStatus("Select at least one PDF or image file to merge.");
+      setStatus("Select at least one PDF or image file.");
       return;
     }
+
+    const isSingleFile = mergeSelection.length === 1;
+    const actionLabel = isSingleFile ? "Converted" : "Merged";
 
     startTransition(async () => {
       try {
         const mergedFileNames = mergeSelection.map((file) => file.name);
 
         if (sourceMode === "path") {
-          const result = await fetchJson<{ outputFile: string }>("/api/pdf/merge", {
+          const result = await fetchJson<{ outputFile: string; originalSize?: number; compressedSize?: number }>("/api/pdf/merge", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -427,6 +531,7 @@ export function PdfLocalWorkbench() {
               folderPath: listing.path,
               fileNames: mergedFileNames,
               outputName,
+              compressQuality: compressQuality,
             }),
           });
 
@@ -436,7 +541,10 @@ export function PdfLocalWorkbench() {
             fileNames: mergedFileNames,
             kind: "merge",
           });
-          setStatus(`Merged into ${result.outputFile}. You can now delete the original files used in this merge.`);
+          const sizeInfo = result.originalSize != null && result.compressedSize != null
+            ? ` (${formatBytes(result.originalSize)} → ${formatBytes(result.compressedSize)})`
+            : "";
+          setStatus(`${actionLabel} into ${result.outputFile}${sizeInfo}. You can now delete the original file(s).`);
           return;
         }
 
@@ -451,10 +559,16 @@ export function PdfLocalWorkbench() {
         }
 
         const mergedPdf = await buildBrowserPdfFromFiles(files);
+
+        // Auto-compress the merged output
+        const tempBlob = new Blob([mergedPdf as BlobPart], { type: "application/pdf" });
+        const tempFile = new File([tempBlob], "temp.pdf", { type: "application/pdf" });
+        const compressed = await compressBrowserPdfFile(tempFile, compressQuality);
+
         const writtenFile = await writeBrowserPdfFile(
           pickerState.currentHandle,
           outputName || DEFAULT_OUTPUT_NAME,
-          mergedPdf,
+          compressed.bytes,
         );
         await navigatePickerFolder(pickerState.currentRelativePath);
         setSourceDeletePrompt({
@@ -462,7 +576,8 @@ export function PdfLocalWorkbench() {
           fileNames: mergedFileNames,
           kind: "merge",
         });
-        setStatus(`Merged into ${writtenFile}. You can now delete the original files used in this merge.`);
+        const sizeInfo = ` (${formatBytes(compressed.originalSize)} → ${formatBytes(compressed.compressedSize)})`;
+        setStatus(`${actionLabel} into ${writtenFile}${sizeInfo}. You can now delete the original file(s).`);
       } catch (error) {
         setStatus(getApiErrorMessage(error));
       }
@@ -538,6 +653,7 @@ export function PdfLocalWorkbench() {
                 folderPath: listing.path,
                 fileName: target.name,
                 outputName: compressOutputName,
+                quality: compressQuality,
               }),
             },
           );
@@ -560,7 +676,7 @@ export function PdfLocalWorkbench() {
 
         const handle = await pickerState.currentHandle.getFileHandle(target.name);
         const sourceFile = await handle.getFile();
-        const result = await compressBrowserPdfFile(sourceFile);
+        const result = await compressBrowserPdfFile(sourceFile, compressQuality);
         const writtenFile = await writeBrowserPdfFile(
           pickerState.currentHandle,
           compressOutputName || `${target.name.replace(/\.pdf$/i, "")}-compressed.pdf`,
@@ -635,7 +751,8 @@ export function PdfLocalWorkbench() {
     });
   }
 
-  const canMerge = mergeSelection.length > 0;
+  const canMerge = mergeSelection.length >= 1;
+  const isSingleConvert = mergeSelection.length === 1;
   const canSplit = selectedPdfFiles.length === 1;
   const canCompress = selectedPdfFiles.length === 1;
 
@@ -732,19 +849,36 @@ export function PdfLocalWorkbench() {
                 <span className="muted">Parent</span>
               </button>
               {(listing?.directories ?? []).map((directory) => (
-                <button
-                  key={directory.path}
-                  className="folder-row"
-                  onClick={() =>
-                    sourceMode === "path"
-                      ? void navigatePathFolder(directory.path)
-                      : void navigatePickerFolder(toPickerRelativePath(directory.path))
-                  }
-                  disabled={isPending}
-                >
-                  <span>{directory.name}</span>
-                  <span className="muted">Open</span>
-                </button>
+                <div key={directory.path} className="folder-row">
+                  <button
+                    className="folder-row-open"
+                    onClick={() =>
+                      sourceMode === "path"
+                        ? void navigatePathFolder(directory.path)
+                        : void navigatePickerFolder(toPickerRelativePath(directory.path))
+                    }
+                    disabled={isPending}
+                  >
+                    <span>{directory.name}</span>
+                    <span className="muted">Open</span>
+                  </button>
+                  {sourceMode === "path" && (
+                    <span
+                      className="zip-cell"
+                      role="button"
+                      tabIndex={0}
+                      title={`Zip "${directory.name}"`}
+                      onClick={(event) => void handleZipFolder(event, directory.path, directory.name)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          void handleZipFolder(event as unknown as React.MouseEvent, directory.path, directory.name);
+                        }
+                      }}
+                    >
+                      🗜️
+                    </span>
+                  )}
+                </div>
               ))}
               {listing && listing.directories.length === 0 ? <p className="empty-state">No subfolders here.</p> : null}
             </div>
@@ -779,26 +913,72 @@ export function PdfLocalWorkbench() {
               <span>Modified</span>
               <span>Size</span>
               <span>Order</span>
+              <span></span>
             </div>
             {sortedFiles.map((file) => {
               const selectedIndex = selection.indexOf(file.name);
               const selected = selectedIndex >= 0;
+              const isRenaming = renamingFile === file.name;
               return (
                 <button
                   key={file.name}
                   className={`file-row ${selected ? "selected" : ""}`}
                   onClick={() => void handleFileClick(file)}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    handleFileDoubleClick(file);
+                  }}
                 >
                   <span className="file-name">
-                    <strong>{file.name}</strong>
-                    {SUPPORTED_IMAGE_EXTENSIONS.includes(file.extension as (typeof SUPPORTED_IMAGE_EXTENSIONS)[number]) ? (
-                      <em>image</em>
-                    ) : null}
+                    {isRenaming ? (
+                      <input
+                        ref={renameInputRef}
+                        className="rename-input"
+                        value={renameValue}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void commitRename();
+                          }
+                          if (event.key === "Escape") {
+                            cancelRename();
+                          }
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onBlur={() => void commitRename()}
+                      />
+                    ) : (
+                      <>
+                        <strong>{file.name}</strong>
+                        {SUPPORTED_IMAGE_EXTENSIONS.includes(file.extension as (typeof SUPPORTED_IMAGE_EXTENSIONS)[number]) ? (
+                          <em>image</em>
+                        ) : null}
+                      </>
+                    )}
                   </span>
                   <span>{file.extension || "file"}</span>
                   <span>{formatDate(file.modifiedAt)}</span>
                   <span>{formatBytes(file.size)}</span>
                   <span>{selected ? selectedIndex + 1 : "-"}</span>
+                  <span
+                    className="delete-cell"
+                    role="button"
+                    tabIndex={0}
+                    title={`Delete ${file.name}`}
+                    onClick={(event) => void handleDeleteFile(event, file)}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.stopPropagation();
+                        void handleDeleteFile(event as unknown as React.MouseEvent, file);
+                      }
+                    }}
+                  >
+                    🗑️
+                  </span>
                 </button>
               );
             })}
@@ -827,18 +1007,30 @@ export function PdfLocalWorkbench() {
           <div className="action-grid action-grid-three">
             <section className="action-card">
               <div className="section-header compact">
-                <h3>Merge</h3>
+                <h3>{isSingleConvert ? "Convert to PDF" : "Merge / Convert"}</h3>
                 <span>{mergeSelection.length} valid</span>
               </div>
               <label className="inline-stack">
                 <span>Output file name</span>
                 <input value={outputName} onChange={(event) => setOutputName(event.target.value)} placeholder={DEFAULT_OUTPUT_NAME} />
               </label>
+              <label className="inline-stack">
+                <span>Compress quality</span>
+                <select value={compressQuality} onChange={(event) => setCompressQuality(event.target.value as CompressQuality)}>
+                  {COMPRESS_QUALITY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <p className="helper-copy">
-                Supported: {FILE_ACCEPT_ATTRIBUTE}. Selection order is preserved. Images are converted silently into PDF pages.
+                {isSingleConvert
+                  ? "Converts the selected file to a compressed PDF. Works with images and PDFs."
+                  : "Merges files into a single compressed PDF. Supports PDFs and images. Selection order is preserved."}
               </p>
               <button className="primary-button" onClick={() => void handleMerge()} disabled={!canMerge || isPending}>
-                Merge selected
+                {isSingleConvert ? "Convert to PDF" : "Merge selected"}
               </button>
             </section>
 
@@ -855,8 +1047,18 @@ export function PdfLocalWorkbench() {
                   placeholder={DEFAULT_COMPRESS_OUTPUT_NAME}
                 />
               </label>
+              <label className="inline-stack">
+                <span>Quality</span>
+                <select value={compressQuality} onChange={(event) => setCompressQuality(event.target.value as CompressQuality)}>
+                  {COMPRESS_QUALITY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <p className="helper-copy">
-                Rewrites the selected PDF into a leaner output and then offers to remove the original file.
+                Recompresses embedded JPEG images at the chosen quality level and then offers to remove the original file.
               </p>
               <button className="primary-button" onClick={() => void handleCompress()} disabled={!canCompress || isPending}>
                 Compress selected PDF

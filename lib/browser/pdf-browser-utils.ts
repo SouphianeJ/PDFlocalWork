@@ -1,8 +1,9 @@
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRawStream, PDFRef } from "pdf-lib";
 import {
   getBaseName,
   isSupportedPdfExtension,
   normalizeFileName,
+  type CompressQuality,
   type DirectoryListing,
   type SplitMode,
 } from "@/lib/shared";
@@ -105,20 +106,159 @@ export async function buildBrowserPdfFromFiles(files: File[]) {
   });
 }
 
-export async function compressBrowserPdfFile(sourceFile: File): Promise<BrowserCompressOutput> {
-  const sourceBytes = new Uint8Array(await sourceFile.arrayBuffer());
-  const sourcePdf = await PDFDocument.load(sourceBytes);
-  const optimizedPdf = await PDFDocument.create();
-  const copiedPages = await optimizedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
-  for (const page of copiedPages) {
-    optimizedPdf.addPage(page);
+const BROWSER_QUALITY_MAP: Record<CompressQuality, number> = {
+  screen: 0.4,
+  ebook: 0.65,
+  printer: 0.85,
+};
+
+async function recompressJpegViaCanvas(jpegBytes: Uint8Array, quality: number): Promise<Uint8Array | null> {
+  const blob = new Blob([jpegBytes as BlobPart], { type: "image/jpeg" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const node = new Image();
+      node.onload = () => resolve(node);
+      node.onerror = () => reject(new Error("Failed to decode JPEG"));
+      node.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    const outBlob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", quality),
+    );
+    if (!outBlob) return null;
+    return new Uint8Array(await outBlob.arrayBuffer());
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function inflateFlateBytes(data: Uint8Array): Promise<Uint8Array> {
+  const ds = new DecompressionStream("deflate");
+  const writer = ds.writable.getWriter();
+  writer.write(data as unknown as BufferSource);
+  writer.close();
+  const reader = ds.readable.getReader();
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+async function recompressFlateImageViaCanvas(
+  flateBytes: Uint8Array,
+  width: number,
+  height: number,
+  channels: 1 | 3,
+  quality: number,
+): Promise<Uint8Array | null> {
+  const rawPixels = await inflateFlateBytes(flateBytes);
+  if (rawPixels.byteLength !== width * height * channels) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Build RGBA ImageData from raw pixels
+  const imageData = ctx.createImageData(width, height);
+  const rgba = imageData.data;
+  if (channels === 3) {
+    for (let i = 0, j = 0; i < rawPixels.length; i += 3, j += 4) {
+      rgba[j] = rawPixels[i];
+      rgba[j + 1] = rawPixels[i + 1];
+      rgba[j + 2] = rawPixels[i + 2];
+      rgba[j + 3] = 255;
+    }
+  } else {
+    // Grayscale
+    for (let i = 0, j = 0; i < rawPixels.length; i++, j += 4) {
+      rgba[j] = rawPixels[i];
+      rgba[j + 1] = rawPixels[i];
+      rgba[j + 2] = rawPixels[i];
+      rgba[j + 3] = 255;
+    }
   }
 
-  const compressedBytes = await optimizedPdf.save({
+  ctx.putImageData(imageData, 0, 0);
+  const outBlob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", quality),
+  );
+  if (!outBlob) return null;
+  return new Uint8Array(await outBlob.arrayBuffer());
+}
+
+export async function compressBrowserPdfFile(sourceFile: File, quality: CompressQuality = "ebook"): Promise<BrowserCompressOutput> {
+  const sourceBytes = new Uint8Array(await sourceFile.arrayBuffer());
+  const pdfDoc = await PDFDocument.load(sourceBytes);
+  const jpegQuality = BROWSER_QUALITY_MAP[quality];
+
+  for (const [ref, obj] of pdfDoc.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFRawStream)) continue;
+    const dict = obj.dict;
+    if (dict.get(PDFName.of("Subtype"))?.toString() !== "/Image") continue;
+    const filter = dict.get(PDFName.of("Filter"))?.toString();
+
+    const originalBytes = obj.getContents();
+
+    if (filter === "/DCTDecode") {
+      try {
+        const recompressed = await recompressJpegViaCanvas(originalBytes, jpegQuality);
+        if (recompressed && recompressed.byteLength < originalBytes.byteLength) {
+          pdfDoc.context.assign(ref as PDFRef, PDFRawStream.of(dict, recompressed));
+        }
+      } catch {
+        // skip images that cannot be processed
+      }
+      continue;
+    }
+
+    if (filter === "/FlateDecode") {
+      try {
+        const width = Number(dict.get(PDFName.of("Width"))?.toString());
+        const height = Number(dict.get(PDFName.of("Height"))?.toString());
+        const bpc = Number(dict.get(PDFName.of("BitsPerComponent"))?.toString() || "8");
+        if (!width || !height || bpc !== 8) continue;
+
+        const cs = dict.get(PDFName.of("ColorSpace"))?.toString() ?? "";
+        let channels: 1 | 3;
+        if (cs.includes("DeviceGray")) channels = 1;
+        else if (cs.includes("DeviceRGB")) channels = 3;
+        else continue;
+
+        const recompressed = await recompressFlateImageViaCanvas(originalBytes, width, height, channels, jpegQuality);
+        if (recompressed && recompressed.byteLength < originalBytes.byteLength) {
+          dict.set(PDFName.of("Filter"), PDFName.of("DCTDecode"));
+          dict.delete(PDFName.of("DecodeParms"));
+          if (channels === 3) dict.set(PDFName.of("ColorSpace"), PDFName.of("DeviceRGB"));
+          pdfDoc.context.assign(ref as PDFRef, PDFRawStream.of(dict, recompressed));
+        }
+      } catch {
+        // skip images that cannot be processed
+      }
+      continue;
+    }
+  }
+
+  const compressedBytes = await pdfDoc.save({
     useObjectStreams: true,
     addDefaultPage: false,
-    updateFieldAppearances: false,
-    objectsPerTick: 100,
   });
 
   return {
@@ -285,4 +425,33 @@ export async function deleteBrowserFiles(
     deletedCount: fileNames.length,
     deletedFiles: fileNames,
   };
+}
+
+export async function renameBrowserFile(
+  directoryHandle: FileSystemDirectoryHandle,
+  oldName: string,
+  newName: string,
+) {
+  // Check that new name doesn't already exist
+  try {
+    await directoryHandle.getFileHandle(newName, { create: false });
+    throw new Error(`A file named "${newName}" already exists.`);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("already exists")) {
+      throw error;
+    }
+  }
+
+  const oldHandle = await directoryHandle.getFileHandle(oldName);
+  const file = await oldHandle.getFile();
+  const buffer = await file.arrayBuffer();
+
+  const newHandle = await directoryHandle.getFileHandle(newName, { create: true });
+  const writable = await newHandle.createWritable();
+  await writable.write(buffer);
+  await writable.close();
+
+  await (directoryHandle as RemovableDirectoryHandle).removeEntry(oldName);
+
+  return { oldName, newName };
 }
