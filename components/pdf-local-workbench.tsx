@@ -758,31 +758,21 @@ export function PdfLocalWorkbench() {
 
   return (
     <main className="shell">
-      <section className="hero-card">
-        <div>
-          <p className="eyebrow">Local PDF helper</p>
-          <h1>Merge and split PDFs at desktop speed.</h1>
-          <p className="hero-copy">
-            Browse a real folder path for the reliable workflow, or use the browser directory picker when available.
-            Files stay local and output lands next to the source files.
-          </p>
-        </div>
-        <div className="hero-grid">
-          <label className="field-card">
-            <span>Folder path</span>
+      <section className="hero-card compact-hero">
+        <div className="hero-bar">
+          <span className="hero-title">PDF Local Work</span>
+          <div className="hero-input-group">
             <input
               value={folderPathInput}
               onChange={(event) => setFolderPathInput(event.target.value)}
               placeholder="C:\\Users\\you\\Documents\\PDFs"
               spellCheck={false}
             />
-          </label>
-          <div className="hero-actions">
             <button className="primary-button" onClick={() => void openFolderByPath(folderPathInput)} disabled={isPending}>
-              Open path
+              Open
             </button>
             <button className="secondary-button" onClick={() => void openBrowserFolder()} disabled={isPending}>
-              Browser folder
+              Browse
             </button>
           </div>
         </div>
