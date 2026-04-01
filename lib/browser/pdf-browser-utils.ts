@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFRawStream, PDFRef } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRawStream, PDFRef, degrees as pdfDegrees } from "pdf-lib";
 import {
   getBaseName,
   isSupportedPdfExtension,
@@ -425,6 +425,44 @@ export async function deleteBrowserFiles(
     deletedCount: fileNames.length,
     deletedFiles: fileNames,
   };
+}
+
+export async function rotateBrowserPdfPages(
+  directoryHandle: FileSystemDirectoryHandle,
+  fileName: string,
+  pageRotations: { page: number; degrees: 0 | 90 | 180 | 270 }[],
+) {
+  const handle = await directoryHandle.getFileHandle(fileName);
+  const file = await handle.getFile();
+  const sourceBytes = new Uint8Array(await file.arrayBuffer());
+  const pdfDoc = await PDFDocument.load(sourceBytes);
+  const pageCount = pdfDoc.getPageCount();
+
+  for (const { page, degrees } of pageRotations) {
+    if (page < 1 || page > pageCount) {
+      throw new Error(`Page ${page} is out of range (1-${pageCount}).`);
+    }
+    const pdfPage = pdfDoc.getPage(page - 1);
+    const currentRotation = pdfPage.getRotation().angle;
+    pdfPage.setRotation(pdfDegrees((currentRotation + degrees) % 360));
+  }
+
+  const rotatedBytes = await pdfDoc.save({ useObjectStreams: true, addDefaultPage: false });
+  const writable = await handle.createWritable();
+  await writable.write(rotatedBytes.buffer as ArrayBuffer);
+  await writable.close();
+
+  return { fileName, pageCount, rotationsApplied: pageRotations.length };
+}
+
+export async function getBrowserPdfPageCount(
+  directoryHandle: FileSystemDirectoryHandle,
+  fileName: string,
+): Promise<number> {
+  const handle = await directoryHandle.getFileHandle(fileName);
+  const file = await handle.getFile();
+  const pdfDoc = await PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true });
+  return pdfDoc.getPageCount();
 }
 
 export async function renameBrowserFile(

@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   buildBrowserPdfFromFiles,
   compressBrowserPdfFile,
   deleteBrowserFiles,
+  getBrowserPdfPageCount,
   listBrowserDirectory,
   renameBrowserFile,
+  rotateBrowserPdfPages,
   splitBrowserPdfFile,
   writeBrowserPdfFile,
 } from "@/lib/browser/pdf-browser-utils";
@@ -217,6 +219,9 @@ export function PdfLocalWorkbench() {
   const [renamingFile, setRenamingFile] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const [pageCounts, setPageCounts] = useState<Record<string, number>>({});
+  const [deleteConfirm, setDeleteConfirm] = useState<{ file: FileItem; event: React.MouseEvent } | null>(null);
+  const [rotateDegrees, setRotateDegrees] = useState<0 | 90 | 180 | 270>(90);
   const [status, setStatus] = useState("Enter a folder path or use the browser picker.");
   const [isPending, startTransition] = useTransition();
 
@@ -231,6 +236,101 @@ export function PdfLocalWorkbench() {
   const selectedPdfFiles = selectedFiles.filter(isPdfFile);
   const currentPath = listing?.path ?? "";
   const breadcrumbs = useMemo(() => (currentPath ? buildBreadcrumbs(currentPath) : []), [currentPath]);
+
+  // Fetch page counts for PDF files when listing changes
+  useEffect(() => {
+    if (!listing) return;
+    const pdfFiles = listing.files.filter((f) =>
+      SUPPORTED_PDF_EXTENSIONS.includes(f.extension as (typeof SUPPORTED_PDF_EXTENSIONS)[number]),
+    );
+    if (pdfFiles.length === 0) return;
+
+    let cancelled = false;
+
+    async function fetchCounts() {
+      const counts: Record<string, number> = {};
+      for (const file of pdfFiles) {
+        if (cancelled) return;
+        try {
+          if (sourceMode === "path") {
+            const res = await fetch("/api/pdf/pagecount", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ folderPath: listing!.path, fileName: file.name }),
+            });
+            if (res.ok) {
+              const data = (await res.json()) as { pageCount: number };
+              counts[file.name] = data.pageCount;
+            }
+          } else if (pickerState) {
+            counts[file.name] = await getBrowserPdfPageCount(pickerState.currentHandle, file.name);
+          }
+        } catch {
+          // skip files we can't read
+        }
+      }
+      if (!cancelled) setPageCounts(counts);
+    }
+
+    void fetchCounts();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listing?.path, listing?.files.length, sourceMode]);
+
+  // Keyboard shortcuts
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      // Don't intercept when typing in inputs
+      const target = event.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
+
+      if (event.key === "Escape") {
+        setSelection([]);
+        setDeleteConfirm(null);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === "a") {
+        event.preventDefault();
+        if (listing) {
+          setSelection(listing.files.map((f) => f.name));
+        }
+        return;
+      }
+
+      if (event.key === "Delete" && selection.length > 0 && listing) {
+        event.preventDefault();
+        // Trigger batch delete with confirmation
+        setDeleteConfirm(null); // clear single-file confirm in favor of batch
+        startTransition(async () => {
+          try {
+            if (sourceMode === "path") {
+              await fetchJson("/api/fs/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ folderPath: listing.path, fileNames: selection }),
+              });
+              await openFolderByPath(listing.path);
+            } else if (pickerState) {
+              await deleteBrowserFiles(pickerState.currentHandle, selection);
+              await navigatePickerFolder(pickerState.currentRelativePath);
+            }
+            setStatus(`Deleted ${selection.length} file(s).`);
+            setSelection([]);
+          } catch (error) {
+            setStatus(getApiErrorMessage(error));
+          }
+        });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [listing, selection, sourceMode, pickerState],
+  );
+
+  useEffect(() => {
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   async function openFolderByPath(nextPath: string) {
     const trimmedPath = nextPath.trim();
@@ -450,25 +550,35 @@ export function PdfLocalWorkbench() {
     event.stopPropagation();
     if (!listing) return;
 
-    startTransition(async () => {
-      try {
-        if (sourceMode === "path") {
-          await fetchJson("/api/fs/delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ folderPath: listing.path, fileNames: [file.name] }),
-          });
-          await openFolderByPath(listing.path);
-        } else if (pickerState) {
-          await deleteBrowserFiles(pickerState.currentHandle, [file.name]);
-          await navigatePickerFolder(pickerState.currentRelativePath);
+    // If already confirming this file, execute the delete
+    if (deleteConfirm?.file.name === file.name) {
+      setDeleteConfirm(null);
+      startTransition(async () => {
+        try {
+          if (sourceMode === "path") {
+            await fetchJson("/api/fs/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ folderPath: listing.path, fileNames: [file.name] }),
+            });
+            await openFolderByPath(listing.path);
+          } else if (pickerState) {
+            await deleteBrowserFiles(pickerState.currentHandle, [file.name]);
+            await navigatePickerFolder(pickerState.currentRelativePath);
+          }
+          setSelection((prev) => prev.filter((n) => n !== file.name));
+          setStatus(`Deleted "${file.name}".`);
+        } catch (error) {
+          setStatus(getApiErrorMessage(error));
         }
-        setSelection((prev) => prev.filter((n) => n !== file.name));
-        setStatus(`Deleted "${file.name}".`);
-      } catch (error) {
-        setStatus(getApiErrorMessage(error));
-      }
-    });
+      });
+      return;
+    }
+
+    // First click: show confirmation
+    setDeleteConfirm({ file, event });
+    // Auto-clear after 3 seconds
+    setTimeout(() => setDeleteConfirm((prev) => (prev?.file.name === file.name ? null : prev)), 3000);
   }
 
   async function handleZipFolder(event: React.MouseEvent, folderPath: string, folderName: string) {
@@ -633,65 +743,74 @@ export function PdfLocalWorkbench() {
   }
 
   async function handleCompress() {
-    const target = selectedPdfFiles[0];
-    if (!target || !listing) {
-      setStatus("Select exactly one PDF file to compress.");
+    if (selectedPdfFiles.length === 0 || !listing) {
+      setStatus("Select at least one PDF file to compress.");
       return;
     }
 
     startTransition(async () => {
       try {
-        if (sourceMode === "path") {
-          const result = await fetchJson<{ outputFile: string; originalSize: number; compressedSize: number }>(
-            "/api/pdf/compress",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                folderPath: listing.path,
-                fileName: target.name,
-                outputName: compressOutputName,
-                quality: compressQuality,
-              }),
-            },
-          );
+        const results: { name: string; original: number; compressed: number }[] = [];
 
+        for (const target of selectedPdfFiles) {
+          const autoOutputName = selectedPdfFiles.length === 1
+            ? compressOutputName
+            : `compressed-${target.name}`;
+
+          if (sourceMode === "path") {
+            const result = await fetchJson<{ outputFile: string; originalSize: number; compressedSize: number }>(
+              "/api/pdf/compress",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  folderPath: listing.path,
+                  fileName: target.name,
+                  outputName: autoOutputName,
+                  quality: compressQuality,
+                }),
+              },
+            );
+            results.push({ name: result.outputFile, original: result.originalSize, compressed: result.compressedSize });
+          } else if (pickerState) {
+            const handle = await pickerState.currentHandle.getFileHandle(target.name);
+            const sourceFile = await handle.getFile();
+            const result = await compressBrowserPdfFile(sourceFile, compressQuality);
+            const writtenFile = await writeBrowserPdfFile(
+              pickerState.currentHandle,
+              autoOutputName || `${target.name.replace(/\.pdf$/i, "")}-compressed.pdf`,
+              result.bytes,
+            );
+            results.push({ name: writtenFile, original: result.originalSize, compressed: result.compressedSize });
+          }
+        }
+
+        if (sourceMode === "path") {
           await openFolderByPath(listing.path);
+        } else if (pickerState) {
+          await navigatePickerFolder(pickerState.currentRelativePath);
+        }
+
+        if (results.length === 1) {
+          const r = results[0];
           setSourceDeletePrompt({
-            outputFile: result.outputFile,
-            fileNames: [target.name],
+            outputFile: r.name,
+            fileNames: [selectedPdfFiles[0].name],
+            kind: "compress",
+          });
+          setStatus(`Compressed into ${r.name} (${formatBytes(r.original)} → ${formatBytes(r.compressed)}).`);
+        } else {
+          const totalOriginal = results.reduce((s, r) => s + r.original, 0);
+          const totalCompressed = results.reduce((s, r) => s + r.compressed, 0);
+          setSourceDeletePrompt({
+            outputFile: results.map((r) => r.name).join(", "),
+            fileNames: selectedPdfFiles.map((f) => f.name),
             kind: "compress",
           });
           setStatus(
-            `Compressed into ${result.outputFile} (${formatBytes(result.originalSize)} -> ${formatBytes(result.compressedSize)}).`,
+            `Compressed ${results.length} PDFs (${formatBytes(totalOriginal)} → ${formatBytes(totalCompressed)} total).`,
           );
-          return;
         }
-
-        if (!pickerState) {
-          return;
-        }
-
-        const handle = await pickerState.currentHandle.getFileHandle(target.name);
-        const sourceFile = await handle.getFile();
-        const result = await compressBrowserPdfFile(sourceFile, compressQuality);
-        const writtenFile = await writeBrowserPdfFile(
-          pickerState.currentHandle,
-          compressOutputName || `${target.name.replace(/\.pdf$/i, "")}-compressed.pdf`,
-          result.bytes,
-        );
-
-        await navigatePickerFolder(pickerState.currentRelativePath);
-        setSourceDeletePrompt({
-          outputFile: writtenFile,
-          fileNames: [target.name],
-          kind: "compress",
-        });
-        setStatus(
-          `Compressed into ${writtenFile} (${formatBytes(result.originalSize)} -> ${formatBytes(result.compressedSize)}).`,
-        );
       } catch (error) {
         setStatus(getApiErrorMessage(error));
       }
@@ -751,10 +870,57 @@ export function PdfLocalWorkbench() {
     });
   }
 
+  async function handleRotate() {
+    const target = selectedPdfFiles[0];
+    if (!target || !listing) {
+      setStatus("Select exactly one PDF file to rotate.");
+      return;
+    }
+
+    const pageCount = pageCounts[target.name];
+    if (!pageCount) {
+      setStatus("Page count not yet loaded. Please wait a moment.");
+      return;
+    }
+
+    const rotations = Array.from({ length: pageCount }, (_, i) => ({
+      page: i + 1,
+      degrees: rotateDegrees,
+    }));
+
+    startTransition(async () => {
+      try {
+        if (sourceMode === "path") {
+          await fetchJson("/api/pdf/rotate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              folderPath: listing.path,
+              fileName: target.name,
+              pageRotations: rotations,
+            }),
+          });
+          await openFolderByPath(listing.path);
+        } else if (pickerState) {
+          await rotateBrowserPdfPages(pickerState.currentHandle, target.name, rotations);
+          await navigatePickerFolder(pickerState.currentRelativePath);
+        }
+        setStatus(`Rotated all ${pageCount} page(s) of "${target.name}" by ${rotateDegrees}°.`);
+        // Refresh preview if this file was previewed
+        if (preview?.fileName === target.name) {
+          await handlePreview(target);
+        }
+      } catch (error) {
+        setStatus(getApiErrorMessage(error));
+      }
+    });
+  }
+
   const canMerge = mergeSelection.length >= 1;
   const isSingleConvert = mergeSelection.length === 1;
   const canSplit = selectedPdfFiles.length === 1;
-  const canCompress = selectedPdfFiles.length === 1;
+  const canCompress = selectedPdfFiles.length >= 1;
+  const canRotate = selectedPdfFiles.length === 1;
 
   return (
     <main className="shell">
@@ -902,6 +1068,7 @@ export function PdfLocalWorkbench() {
               <span>Type</span>
               <span>Modified</span>
               <span>Size</span>
+              <span>Pages</span>
               <span>Order</span>
               <span></span>
             </div>
@@ -952,12 +1119,13 @@ export function PdfLocalWorkbench() {
                   <span>{file.extension || "file"}</span>
                   <span>{formatDate(file.modifiedAt)}</span>
                   <span>{formatBytes(file.size)}</span>
+                  <span>{pageCounts[file.name] != null ? pageCounts[file.name] : isPdfFile(file) ? "…" : "-"}</span>
                   <span>{selected ? selectedIndex + 1 : "-"}</span>
                   <span
-                    className="delete-cell"
+                    className={`delete-cell${deleteConfirm?.file.name === file.name ? " delete-confirm" : ""}`}
                     role="button"
                     tabIndex={0}
-                    title={`Delete ${file.name}`}
+                    title={deleteConfirm?.file.name === file.name ? "Click again to confirm delete" : `Delete ${file.name}`}
                     onClick={(event) => void handleDeleteFile(event, file)}
                     onDoubleClick={(event) => event.stopPropagation()}
                     onKeyDown={(event) => {
@@ -994,7 +1162,7 @@ export function PdfLocalWorkbench() {
             )}
           </section>
 
-          <div className="action-grid action-grid-three">
+          <div className="action-grid action-grid-four">
             <section className="action-card">
               <div className="section-header compact">
                 <h3>{isSingleConvert ? "Convert to PDF" : "Merge / Convert"}</h3>
@@ -1026,17 +1194,19 @@ export function PdfLocalWorkbench() {
 
             <section className="action-card">
               <div className="section-header compact">
-                <h3>Compress PDF</h3>
-                <span>{canCompress ? selectedPdfFiles[0].name : "Select 1 PDF"}</span>
+                <h3>Compress PDF{selectedPdfFiles.length > 1 ? "s" : ""}</h3>
+                <span>{canCompress ? `${selectedPdfFiles.length} PDF${selectedPdfFiles.length > 1 ? "s" : ""}` : "Select PDFs"}</span>
               </div>
-              <label className="inline-stack">
-                <span>Output file name</span>
-                <input
-                  value={compressOutputName}
-                  onChange={(event) => setCompressOutputName(event.target.value)}
-                  placeholder={DEFAULT_COMPRESS_OUTPUT_NAME}
-                />
-              </label>
+              {selectedPdfFiles.length <= 1 && (
+                <label className="inline-stack">
+                  <span>Output file name</span>
+                  <input
+                    value={compressOutputName}
+                    onChange={(event) => setCompressOutputName(event.target.value)}
+                    placeholder={DEFAULT_COMPRESS_OUTPUT_NAME}
+                  />
+                </label>
+              )}
               <label className="inline-stack">
                 <span>Quality</span>
                 <select value={compressQuality} onChange={(event) => setCompressQuality(event.target.value as CompressQuality)}>
@@ -1048,10 +1218,12 @@ export function PdfLocalWorkbench() {
                 </select>
               </label>
               <p className="helper-copy">
-                Recompresses embedded JPEG images at the chosen quality level and then offers to remove the original file.
+                {selectedPdfFiles.length > 1
+                  ? `Compresses ${selectedPdfFiles.length} PDFs at the chosen quality. Each gets its own compressed output.`
+                  : "Recompresses embedded images at the chosen quality level and then offers to remove the original file."}
               </p>
               <button className="primary-button" onClick={() => void handleCompress()} disabled={!canCompress || isPending}>
-                Compress selected PDF
+                {selectedPdfFiles.length > 1 ? `Compress ${selectedPdfFiles.length} PDFs` : "Compress selected PDF"}
               </button>
             </section>
 
@@ -1084,6 +1256,27 @@ export function PdfLocalWorkbench() {
               </label>
               <button className="primary-button" onClick={() => void handleSplit()} disabled={!canSplit || isPending}>
                 Split selected PDF
+              </button>
+            </section>
+
+            <section className="action-card">
+              <div className="section-header compact">
+                <h3>Rotate</h3>
+                <span>{canRotate ? selectedPdfFiles[0].name : "Select 1 PDF"}</span>
+              </div>
+              <label className="inline-field">
+                <span>Rotation</span>
+                <select value={rotateDegrees} onChange={(event) => setRotateDegrees(Number(event.target.value) as 0 | 90 | 180 | 270)}>
+                  <option value={90}>90° clockwise</option>
+                  <option value={180}>180°</option>
+                  <option value={270}>90° counter-clockwise</option>
+                </select>
+              </label>
+              <p className="helper-copy">
+                Rotates all pages in the selected PDF. The file is modified in place.
+              </p>
+              <button className="primary-button" onClick={() => void handleRotate()} disabled={!canRotate || isPending}>
+                Rotate all pages
               </button>
             </section>
           </div>

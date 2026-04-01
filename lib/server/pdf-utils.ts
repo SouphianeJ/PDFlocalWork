@@ -2,7 +2,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { inflateSync } from "node:zlib";
 import sharp from "sharp";
-import { PDFDocument, PDFName, PDFRawStream, PDFRef } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRawStream, PDFRef, degrees as pdfDegrees } from "pdf-lib";
 import { getBaseName, isSupportedPdfExtension, normalizeFileName, type CompressQuality } from "@/lib/shared";
 import { assertSafeFileNames, findAvailablePdfName } from "@/lib/server/fs-utils";
 
@@ -182,6 +182,40 @@ export async function compressPdfFile({ folderPath, fileName, outputName, qualit
     originalSize: sourceBytes.byteLength,
     compressedSize: compressedBytes.byteLength,
   };
+}
+
+export async function rotatePdfPages(
+  folderPath: string,
+  fileName: string,
+  pageRotations: { page: number; degrees: 0 | 90 | 180 | 270 }[],
+) {
+  assertSafeFileNames([fileName]);
+  const filePath = path.join(folderPath, fileName);
+  const sourceBytes = await fs.readFile(filePath);
+  const pdfDoc = await PDFDocument.load(sourceBytes);
+  const pageCount = pdfDoc.getPageCount();
+
+  for (const { page, degrees } of pageRotations) {
+    if (page < 1 || page > pageCount) {
+      throw new Error(`Page ${page} is out of range (1-${pageCount}).`);
+    }
+    const pdfPage = pdfDoc.getPage(page - 1);
+    const currentRotation = pdfPage.getRotation().angle;
+    pdfPage.setRotation(pdfDegrees((currentRotation + degrees) % 360));
+  }
+
+  const rotatedBytes = await pdfDoc.save({ useObjectStreams: true, addDefaultPage: false });
+  await fs.writeFile(filePath, rotatedBytes);
+
+  return { fileName, pageCount, rotationsApplied: pageRotations.length };
+}
+
+export async function getPageCount(folderPath: string, fileName: string) {
+  assertSafeFileNames([fileName]);
+  const filePath = path.join(folderPath, fileName);
+  const sourceBytes = await fs.readFile(filePath);
+  const pdfDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  return pdfDoc.getPageCount();
 }
 
 function parseRangeToken(token: string): PageRange {
