@@ -48,6 +48,12 @@ type PreviewState = {
   src: string;
 };
 
+type PathSuggestion = {
+  name: string;
+  path: string;
+  completion: string;
+};
+
 declare global {
   interface Window {
     showDirectoryPicker?: (options?: {
@@ -61,6 +67,17 @@ declare global {
 const DEFAULT_OUTPUT_NAME = "merged-output.pdf";
 const DEFAULT_SPLIT_PREFIX = "split-output";
 const DEFAULT_COMPRESS_OUTPUT_NAME = "compressed-output.pdf";
+
+function ZipIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M9 3h6l4 4v12a2 2 0 0 1-2 2H9a4 4 0 0 1 0-8h1V3Zm6 1.5V8h3.5L15 4.5ZM11 5v2h2V5h-2Zm0 3v2h2V8h-2Zm0 3v2h2v-2h-2Zm0 3v2h2v-2h-2Zm-2 1a2 2 0 1 0 0 4h6v-4H9Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
 
 function isSupportedBrowserPicker() {
   return typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
@@ -203,6 +220,8 @@ function revokePreviewUrl(preview: PreviewState | null) {
 
 export function PdfLocalWorkbench() {
   const [folderPathInput, setFolderPathInput] = useState("");
+  const [pathSuggestions, setPathSuggestions] = useState<PathSuggestion[]>([]);
+  const [showPathSuggestions, setShowPathSuggestions] = useState(false);
   const [pathListing, setPathListing] = useState<DirectoryListing | null>(null);
   const [pickerState, setPickerState] = useState<BrowserPickerState | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
@@ -219,6 +238,7 @@ export function PdfLocalWorkbench() {
   const [renamingFile, setRenamingFile] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const pathInputRef = useRef<HTMLInputElement>(null);
   const [pageCounts, setPageCounts] = useState<Record<string, number>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ file: FileItem; event: React.MouseEvent } | null>(null);
   const [rotateDegrees, setRotateDegrees] = useState<0 | 90 | 180 | 270>(90);
@@ -236,6 +256,45 @@ export function PdfLocalWorkbench() {
   const selectedPdfFiles = selectedFiles.filter(isPdfFile);
   const currentPath = listing?.path ?? "";
   const breadcrumbs = useMemo(() => (currentPath ? buildBreadcrumbs(currentPath) : []), [currentPath]);
+
+  useEffect(() => {
+    if (sourceMode !== "path") {
+      setPathSuggestions([]);
+      setShowPathSuggestions(false);
+      return;
+    }
+
+    const trimmed = folderPathInput.trim();
+    if (!trimmed) {
+      setPathSuggestions([]);
+      setShowPathSuggestions(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const result = await fetchJson<{ suggestions: PathSuggestion[] }>(
+          `/api/fs/suggest?path=${encodeURIComponent(folderPathInput)}&limit=5`,
+        );
+
+        if (!cancelled) {
+          setPathSuggestions(result.suggestions);
+          setShowPathSuggestions(result.suggestions.length > 0);
+        }
+      } catch {
+        if (!cancelled) {
+          setPathSuggestions([]);
+          setShowPathSuggestions(false);
+        }
+      }
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [folderPathInput, sourceMode]);
 
   // Fetch page counts for PDF files when listing changes
   useEffect(() => {
@@ -345,6 +404,8 @@ export function PdfLocalWorkbench() {
         revokePreviewUrl(preview);
         setPathListing(data);
         setFolderPathInput(data.path);
+        setPathSuggestions([]);
+        setShowPathSuggestions(false);
         setSelection([]);
         setPreview(null);
         setSourceMode("path");
@@ -384,6 +445,8 @@ export function PdfLocalWorkbench() {
       setSelection([]);
       setPreview(null);
       setSourceMode("picker");
+      setPathSuggestions([]);
+      setShowPathSuggestions(false);
       setStatus(`Loaded browser folder "${rootHandle.name}".`);
     } catch (error) {
       setStatus(getApiErrorMessage(error));
@@ -392,6 +455,32 @@ export function PdfLocalWorkbench() {
 
   async function navigatePathFolder(nextPath: string) {
     await openFolderByPath(nextPath);
+  }
+
+  function applyPathSuggestion(suggestion: PathSuggestion) {
+    setFolderPathInput(suggestion.completion);
+    setPathSuggestions([]);
+    setShowPathSuggestions(false);
+
+    requestAnimationFrame(() => {
+      const input = pathInputRef.current;
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      const end = suggestion.completion.length;
+      input.setSelectionRange(end, end);
+    });
+  }
+
+  function handlePathInputTab(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Tab" || pathSuggestions.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    applyPathSuggestion(pathSuggestions[0]);
   }
 
   async function navigatePickerFolder(relativePath: string) {
@@ -587,7 +676,7 @@ export function PdfLocalWorkbench() {
 
     startTransition(async () => {
       try {
-        setStatus(`Zipping "${folderName}"…`);
+        setStatus(`Zipping "${folderName}"â€¦`);
         const result = await fetchJson<{ zipPath: string; zipName: string; size: number; fileCount: number }>(
           "/api/fs/zip",
           {
@@ -652,7 +741,7 @@ export function PdfLocalWorkbench() {
             kind: "merge",
           });
           const sizeInfo = result.originalSize != null && result.compressedSize != null
-            ? ` (${formatBytes(result.originalSize)} → ${formatBytes(result.compressedSize)})`
+            ? ` (${formatBytes(result.originalSize)} â†’ ${formatBytes(result.compressedSize)})`
             : "";
           setStatus(`${actionLabel} into ${result.outputFile}${sizeInfo}. You can now delete the original file(s).`);
           return;
@@ -686,7 +775,7 @@ export function PdfLocalWorkbench() {
           fileNames: mergedFileNames,
           kind: "merge",
         });
-        const sizeInfo = ` (${formatBytes(compressed.originalSize)} → ${formatBytes(compressed.compressedSize)})`;
+        const sizeInfo = ` (${formatBytes(compressed.originalSize)} â†’ ${formatBytes(compressed.compressedSize)})`;
         setStatus(`${actionLabel} into ${writtenFile}${sizeInfo}. You can now delete the original file(s).`);
       } catch (error) {
         setStatus(getApiErrorMessage(error));
@@ -798,7 +887,7 @@ export function PdfLocalWorkbench() {
             fileNames: [selectedPdfFiles[0].name],
             kind: "compress",
           });
-          setStatus(`Compressed into ${r.name} (${formatBytes(r.original)} → ${formatBytes(r.compressed)}).`);
+          setStatus(`Compressed into ${r.name} (${formatBytes(r.original)} â†’ ${formatBytes(r.compressed)}).`);
         } else {
           const totalOriginal = results.reduce((s, r) => s + r.original, 0);
           const totalCompressed = results.reduce((s, r) => s + r.compressed, 0);
@@ -808,7 +897,7 @@ export function PdfLocalWorkbench() {
             kind: "compress",
           });
           setStatus(
-            `Compressed ${results.length} PDFs (${formatBytes(totalOriginal)} → ${formatBytes(totalCompressed)} total).`,
+            `Compressed ${results.length} PDFs (${formatBytes(totalOriginal)} â†’ ${formatBytes(totalCompressed)} total).`,
           );
         }
       } catch (error) {
@@ -905,7 +994,7 @@ export function PdfLocalWorkbench() {
           await rotateBrowserPdfPages(pickerState.currentHandle, target.name, rotations);
           await navigatePickerFolder(pickerState.currentRelativePath);
         }
-        setStatus(`Rotated all ${pageCount} page(s) of "${target.name}" by ${rotateDegrees}°.`);
+        setStatus(`Rotated all ${pageCount} page(s) of "${target.name}" by ${rotateDegrees}Â°.`);
         // Refresh preview if this file was previewed
         if (preview?.fileName === target.name) {
           await handlePreview(target);
@@ -923,17 +1012,57 @@ export function PdfLocalWorkbench() {
   const canRotate = selectedPdfFiles.length === 1;
 
   return (
-    <main className="shell">
+    <main className={`shell${sourceDeletePrompt ? " shell-with-banner" : ""}`}>
+      {sourceDeletePrompt ? (
+        <div className="confirm-banner">
+          <p>
+            {sourceDeletePrompt.kind === "merge"
+              ? `Merged file created: ${sourceDeletePrompt.outputFile}. Would you like to delete the ${sourceDeletePrompt.fileNames.length} original file(s) that were merged?`
+              : `Compressed file created: ${sourceDeletePrompt.outputFile}. Would you like to delete the original PDF used to create this compressed version?`}
+          </p>
+          <div className="hero-actions">
+            <button className="primary-button" onClick={() => void handleDeleteMergedSources()} disabled={isPending}>
+              Delete originals
+            </button>
+            <button className="ghost-button" onClick={handleKeepMergedSources} disabled={isPending}>
+              Keep originals
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <section className="hero-card compact-hero">
         <div className="hero-bar">
           <span className="hero-title">PDF Local Work</span>
           <div className="hero-input-group">
-            <input
-              value={folderPathInput}
-              onChange={(event) => setFolderPathInput(event.target.value)}
-              placeholder="C:\\Users\\you\\Documents\\PDFs"
-              spellCheck={false}
-            />
+            <div className="path-input-stack">
+              <input
+                ref={pathInputRef}
+                value={folderPathInput}
+                onChange={(event) => setFolderPathInput(event.target.value)}
+                onFocus={() => setShowPathSuggestions(pathSuggestions.length > 0 && sourceMode === "path")}
+                onBlur={() => window.setTimeout(() => setShowPathSuggestions(false), 120)}
+                onKeyDown={handlePathInputTab}
+                placeholder="C:\\Users\\you\\Documents\\PDFs"
+                spellCheck={false}
+              />
+              {sourceMode === "path" && showPathSuggestions ? (
+                <div className="path-suggestions" role="listbox" aria-label="Folder suggestions">
+                  {pathSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.path}
+                      type="button"
+                      className="path-suggestion"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => applyPathSuggestion(suggestion)}
+                    >
+                      <span className="path-suggestion-name">{suggestion.name}</span>
+                      <span className="path-suggestion-path">{suggestion.path}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <button className="primary-button" onClick={() => void openFolderByPath(folderPathInput)} disabled={isPending}>
               Open
             </button>
@@ -943,23 +1072,6 @@ export function PdfLocalWorkbench() {
           </div>
         </div>
         <p className="status-line">{status}</p>
-        {sourceDeletePrompt ? (
-          <div className="confirm-banner">
-            <p>
-              {sourceDeletePrompt.kind === "merge"
-                ? `Merged file created: ${sourceDeletePrompt.outputFile}. Would you like to delete the ${sourceDeletePrompt.fileNames.length} original file(s) that were merged?`
-                : `Compressed file created: ${sourceDeletePrompt.outputFile}. Would you like to delete the original PDF used to create this compressed version?`}
-            </p>
-            <div className="hero-actions">
-              <button className="primary-button" onClick={() => void handleDeleteMergedSources()} disabled={isPending}>
-                Delete originals
-              </button>
-              <button className="ghost-button" onClick={handleKeepMergedSources} disabled={isPending}>
-                Keep originals
-              </button>
-            </div>
-          </div>
-        ) : null}
       </section>
 
       <section className="workspace">
@@ -1019,20 +1131,16 @@ export function PdfLocalWorkbench() {
                     <span className="muted">Open</span>
                   </button>
                   {sourceMode === "path" && (
-                    <span
+                    <button
+                      type="button"
                       className="zip-cell"
-                      role="button"
-                      tabIndex={0}
+                      aria-label={`Zip "${directory.name}"`}
                       title={`Zip "${directory.name}"`}
                       onClick={(event) => void handleZipFolder(event, directory.path, directory.name)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          void handleZipFolder(event as unknown as React.MouseEvent, directory.path, directory.name);
-                        }
-                      }}
+                      disabled={isPending}
                     >
-                      🗜️
-                    </span>
+                      <ZipIcon />
+                    </button>
                   )}
                 </div>
               ))}
@@ -1119,7 +1227,7 @@ export function PdfLocalWorkbench() {
                   <span>{file.extension || "file"}</span>
                   <span>{formatDate(file.modifiedAt)}</span>
                   <span>{formatBytes(file.size)}</span>
-                  <span>{pageCounts[file.name] != null ? pageCounts[file.name] : isPdfFile(file) ? "…" : "-"}</span>
+                  <span>{pageCounts[file.name] != null ? pageCounts[file.name] : isPdfFile(file) ? "â€¦" : "-"}</span>
                   <span>{selected ? selectedIndex + 1 : "-"}</span>
                   <span
                     className={`delete-cell${deleteConfirm?.file.name === file.name ? " delete-confirm" : ""}`}
@@ -1135,7 +1243,7 @@ export function PdfLocalWorkbench() {
                       }
                     }}
                   >
-                    🗑️
+                    ðŸ—‘ï¸
                   </span>
                 </button>
               );
@@ -1267,9 +1375,9 @@ export function PdfLocalWorkbench() {
               <label className="inline-field">
                 <span>Rotation</span>
                 <select value={rotateDegrees} onChange={(event) => setRotateDegrees(Number(event.target.value) as 0 | 90 | 180 | 270)}>
-                  <option value={90}>90° clockwise</option>
-                  <option value={180}>180°</option>
-                  <option value={270}>90° counter-clockwise</option>
+                  <option value={90}>90Â° clockwise</option>
+                  <option value={180}>180Â°</option>
+                  <option value={270}>90Â° counter-clockwise</option>
                 </select>
               </label>
               <p className="helper-copy">

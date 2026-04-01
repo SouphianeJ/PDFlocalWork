@@ -64,6 +64,43 @@ export async function getDirectoryListing(inputPath: string): Promise<DirectoryL
   };
 }
 
+export async function getDirectorySuggestions(inputPath: string, limit = 5) {
+  const trimmedPath = inputPath.trim();
+  if (!trimmedPath) {
+    return [];
+  }
+
+  const normalizedInput = path.normalize(trimmedPath);
+  const hasTrailingSeparator = /[\\/]$/.test(trimmedPath);
+  const parentPath = hasTrailingSeparator ? normalizedInput : path.dirname(normalizedInput);
+  const rawPrefix = hasTrailingSeparator ? "" : path.basename(normalizedInput);
+
+  try {
+    const resolvedParentPath = await ensureDirectoryExists(parentPath);
+    const dirEntries = await fs.readdir(resolvedParentPath, { withFileTypes: true });
+
+    return dirEntries
+      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.name.toLowerCase().startsWith(rawPrefix.toLowerCase()))
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
+      .slice(0, limit)
+      .map((entry) => {
+        const fullPath = path.join(resolvedParentPath, entry.name);
+        return {
+          name: entry.name,
+          path: fullPath,
+          completion: `${fullPath}${path.sep}`,
+        };
+      });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
 export function assertSafeFileNames(fileNames: string[]) {
   for (const fileName of fileNames) {
     if (path.basename(fileName) !== fileName) {
