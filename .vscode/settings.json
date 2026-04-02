@@ -1,0 +1,18 @@
+{
+  "files.exclude": {
+    "**/.next": true,
+    "**/node_modules": true,
+    "**/venv": true
+  },
+  "search.exclude": {
+    "**/.next": true,
+    "**/node_modules": true,
+    "**/venv": true
+  },
+  "files.watcherExclude": {
+    "**/.next/**": true,
+    "**/node_modules/**": true,
+    "**/venv/**": true
+  },
+  "chatgpt.commentCodeLensEnabled": false
+}
