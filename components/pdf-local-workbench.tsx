@@ -222,6 +222,7 @@ export function PdfLocalWorkbench() {
   const [folderPathInput, setFolderPathInput] = useState("");
   const [pathSuggestions, setPathSuggestions] = useState<PathSuggestion[]>([]);
   const [showPathSuggestions, setShowPathSuggestions] = useState(false);
+  const [isPathInputFocused, setIsPathInputFocused] = useState(false);
   const [pathListing, setPathListing] = useState<DirectoryListing | null>(null);
   const [pickerState, setPickerState] = useState<BrowserPickerState | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
@@ -280,7 +281,7 @@ export function PdfLocalWorkbench() {
 
         if (!cancelled) {
           setPathSuggestions(result.suggestions);
-          setShowPathSuggestions(result.suggestions.length > 0);
+          setShowPathSuggestions(isPathInputFocused && result.suggestions.length > 0);
         }
       } catch {
         if (!cancelled) {
@@ -294,7 +295,7 @@ export function PdfLocalWorkbench() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [folderPathInput, sourceMode]);
+  }, [folderPathInput, sourceMode, isPathInputFocused]);
 
   // Fetch page counts for PDF files when listing changes
   useEffect(() => {
@@ -1040,8 +1041,16 @@ export function PdfLocalWorkbench() {
                 ref={pathInputRef}
                 value={folderPathInput}
                 onChange={(event) => setFolderPathInput(event.target.value)}
-                onFocus={() => setShowPathSuggestions(pathSuggestions.length > 0 && sourceMode === "path")}
-                onBlur={() => window.setTimeout(() => setShowPathSuggestions(false), 120)}
+                onFocus={() => {
+                  setIsPathInputFocused(true);
+                  setShowPathSuggestions(pathSuggestions.length > 0 && sourceMode === "path");
+                }}
+                onBlur={() =>
+                  window.setTimeout(() => {
+                    setIsPathInputFocused(false);
+                    setShowPathSuggestions(false);
+                  }, 120)
+                }
                 onKeyDown={handlePathInputTab}
                 placeholder="C:\\Users\\you\\Documents\\PDFs"
                 spellCheck={false}
@@ -1127,7 +1136,7 @@ export function PdfLocalWorkbench() {
                     }
                     disabled={isPending}
                   >
-                    <span>{directory.name}</span>
+                    <span className="folder-name">{directory.name}</span>
                     <span className="muted">Open</span>
                   </button>
                   {sourceMode === "path" && (

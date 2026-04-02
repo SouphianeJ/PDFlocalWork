@@ -61,7 +61,8 @@ a {
 }
 
 .shell {
-  width: min(1400px, calc(100vw - 32px));
+  width: calc(100vw - 32px);
+  max-width: 100%;
   margin: 0 auto;
   padding: 32px 0 40px;
 }
@@ -284,7 +285,8 @@ select:focus {
   top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  width: min(1400px, calc(100vw - 32px));
+  width: calc(100vw - 32px);
+  max-width: 100%;
   z-index: 1000;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
   backdrop-filter: blur(10px);
@@ -307,7 +309,7 @@ select:focus {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
   gap: 18px;
   margin-top: 20px;
 }
@@ -391,6 +393,7 @@ select:focus {
   display: flex;
   align-items: center;
   text-align: left;
+  min-width: 0;
 }
 
 .folder-row-open {
@@ -406,6 +409,14 @@ select:focus {
   cursor: pointer;
   text-align: left;
   min-width: 0;
+  gap: 12px;
+}
+
+.folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .zip-cell {
