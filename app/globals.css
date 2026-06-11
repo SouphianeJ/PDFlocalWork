@@ -426,13 +426,15 @@ select:focus {
   justify-content: center;
   width: 42px;
   height: 42px;
+  margin-right: 6px;
+  border-radius: var(--radius-md);
   padding: 0;
   cursor: pointer;
-  background: none;
-  border: none;
-  color: inherit;
-  opacity: 0.35;
-  transition: opacity 140ms ease, transform 140ms ease;
+  background: rgba(182, 107, 57, 0.12);
+  border: 1px solid rgba(182, 107, 57, 0.25);
+  color: rgba(182, 107, 57, 0.95);
+  opacity: 1;
+  transition: background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
   line-height: 1;
 }
 
@@ -442,12 +444,13 @@ select:focus {
 }
 
 .folder-row:hover .zip-cell {
-  opacity: 0.65;
+  background: rgba(182, 107, 57, 0.18);
 }
 
 .zip-cell:hover {
-  opacity: 1 !important;
+  background: rgba(182, 107, 57, 0.28);
   transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(182, 107, 57, 0.25);
 }
 
 .zip-cell:focus-visible {
@@ -459,6 +462,7 @@ select:focus {
 .zip-cell:disabled {
   cursor: default;
   transform: none;
+  opacity: 0.45;
 }
 
 .folder-parent-row {
