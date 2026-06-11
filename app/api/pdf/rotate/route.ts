@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { errorResponse } from "@/lib/server/api-error";
 import { ensureDirectoryExists } from "@/lib/server/fs-utils";
 import { rotatePdfPages } from "@/lib/server/pdf-utils";
+import { requireLocalRequest } from "@/lib/server/security";
 
 const rotateSchema = z.object({
   folderPath: z.string().min(1, "Folder path is required."),
@@ -17,13 +19,15 @@ const rotateSchema = z.object({
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const denial = requireLocalRequest(request);
+  if (denial) return denial;
+
   try {
     const parsed = rotateSchema.parse(await request.json());
     const folderPath = await ensureDirectoryExists(parsed.folderPath);
     const result = await rotatePdfPages(folderPath, parsed.fileName, parsed.pageRotations);
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to rotate pages.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return errorResponse(error, "Unable to rotate pages.");
   }
 }

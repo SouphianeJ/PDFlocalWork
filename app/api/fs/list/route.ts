@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { errorResponse } from "@/lib/server/api-error";
 import { getDirectoryListing } from "@/lib/server/fs-utils";
+import { requireLocalRequest } from "@/lib/server/security";
 
 const querySchema = z.object({
   path: z.string().min(1, "Path is required."),
@@ -9,6 +11,9 @@ const querySchema = z.object({
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  const denial = requireLocalRequest(request);
+  if (denial) return denial;
+
   try {
     const parsed = querySchema.parse({
       path: request.nextUrl.searchParams.get("path"),
@@ -17,7 +22,6 @@ export async function GET(request: NextRequest) {
     const listing = await getDirectoryListing(parsed.path);
     return NextResponse.json(listing);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to list this folder.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return errorResponse(error, "Unable to list this folder.");
   }
 }

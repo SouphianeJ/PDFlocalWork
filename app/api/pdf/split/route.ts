@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { errorResponse } from "@/lib/server/api-error";
 import { ensureDirectoryExists } from "@/lib/server/fs-utils";
 import { splitPdfFile } from "@/lib/server/pdf-utils";
+import { requireLocalRequest } from "@/lib/server/security";
 
 const splitSchema = z.object({
   folderPath: z.string().min(1, "Folder path is required."),
@@ -14,6 +16,9 @@ const splitSchema = z.object({
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const denial = requireLocalRequest(request);
+  if (denial) return denial;
+
   try {
     const parsed = splitSchema.parse(await request.json());
     const folderPath = await ensureDirectoryExists(parsed.folderPath);
@@ -26,7 +31,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to split the selected PDF.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return errorResponse(error, "Unable to split the selected PDF.");
   }
 }

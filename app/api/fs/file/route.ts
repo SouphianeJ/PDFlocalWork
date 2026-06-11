@@ -2,7 +2,9 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { errorResponse } from "@/lib/server/api-error";
 import { ensureDirectoryExists } from "@/lib/server/fs-utils";
+import { requireLocalRequest } from "@/lib/server/security";
 import { isSupportedMergeExtension } from "@/lib/shared";
 
 const querySchema = z.object({
@@ -21,6 +23,9 @@ const CONTENT_TYPES: Record<string, string> = {
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  const denial = requireLocalRequest(request);
+  if (denial) return denial;
+
   try {
     const parsed = querySchema.parse({
       folderPath: request.nextUrl.searchParams.get("folderPath"),
@@ -47,7 +52,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to open the preview file.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return errorResponse(error, "Unable to open the preview file.");
   }
 }

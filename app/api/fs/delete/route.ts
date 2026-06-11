@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { errorResponse } from "@/lib/server/api-error";
 import { deleteFilesFromDirectory, ensureDirectoryExists } from "@/lib/server/fs-utils";
+import { requireLocalRequest } from "@/lib/server/security";
 
 const deleteSchema = z.object({
   folderPath: z.string().min(1, "Folder path is required."),
@@ -10,13 +12,15 @@ const deleteSchema = z.object({
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const denial = requireLocalRequest(request);
+  if (denial) return denial;
+
   try {
     const parsed = deleteSchema.parse(await request.json());
     const folderPath = await ensureDirectoryExists(parsed.folderPath);
     const result = await deleteFilesFromDirectory(folderPath, parsed.fileNames);
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to delete the selected files.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return errorResponse(error, "Unable to delete the selected files.");
   }
 }

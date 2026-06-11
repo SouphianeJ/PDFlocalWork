@@ -55,3 +55,44 @@ export function getBaseName(fileName: string) {
   const index = fileName.lastIndexOf(".");
   return index > 0 ? fileName.slice(0, index) : fileName;
 }
+
+export type PageRange = {
+  start: number;
+  end: number;
+};
+
+export function parsePageRangeToken(token: string): PageRange {
+  const match = token.match(/^(\d+)(?:-(\d+))?$/);
+  if (!match) {
+    throw new Error(`Invalid range token "${token}". Use formats like 3 or 5-8.`);
+  }
+
+  const start = Number(match[1]);
+  const end = Number(match[2] ?? match[1]);
+  if (start <= 0 || end <= 0 || start > end) {
+    throw new Error(`Invalid range token "${token}".`);
+  }
+
+  return { start, end };
+}
+
+export function parsePageRanges(tokens: string[], totalPages: number): PageRange[] {
+  if (tokens.length === 0) {
+    throw new Error("Provide at least one page range.");
+  }
+
+  const parsed = tokens.map(parsePageRangeToken).sort((left, right) => left.start - right.start);
+
+  for (let index = 0; index < parsed.length; index += 1) {
+    const current = parsed[index];
+    if (current.end > totalPages) {
+      throw new Error(`Range ${current.start}-${current.end} exceeds the document page count (${totalPages}).`);
+    }
+
+    if (index > 0 && current.start <= parsed[index - 1].end) {
+      throw new Error("Page ranges cannot overlap.");
+    }
+  }
+
+  return parsed;
+}

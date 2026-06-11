@@ -4,7 +4,9 @@ import { promises as fs } from "node:fs";
 import { createWriteStream } from "node:fs";
 import archiver from "archiver";
 import { z } from "zod";
-import { ensureDirectoryExists } from "@/lib/server/fs-utils";
+import { errorResponse } from "@/lib/server/api-error";
+import { ensureDirectoryExists, findAvailableFileName } from "@/lib/server/fs-utils";
+import { requireLocalRequest } from "@/lib/server/security";
 
 const bodySchema = z.object({
   path: z.string().min(1, "Path is required."),
@@ -52,13 +54,17 @@ async function* walk(
 }
 
 export async function POST(request: NextRequest) {
+  const denial = requireLocalRequest(request);
+  if (denial) return denial;
+
   try {
     const body = await request.json();
     const { path: inputPath } = bodySchema.parse(body);
     const resolvedDir = await ensureDirectoryExists(inputPath);
     const dirName = sanitiseSegment(path.basename(resolvedDir) || "archive");
-    const zipName = `${dirName}.zip`;
-    const zipPath = path.join(path.dirname(resolvedDir), zipName);
+    const parentDir = path.dirname(resolvedDir);
+    const zipName = await findAvailableFileName(parentDir, `${dirName}.zip`, ".zip");
+    const zipPath = path.join(parentDir, zipName);
 
     // Create the archive
     const output = createWriteStream(zipPath);
@@ -97,7 +103,6 @@ export async function POST(request: NextRequest) {
       fileCount,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to create zip archive.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return errorResponse(error, "Unable to create zip archive.");
   }
 }

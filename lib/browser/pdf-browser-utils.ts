@@ -3,6 +3,7 @@ import {
   getBaseName,
   isSupportedPdfExtension,
   normalizeFileName,
+  parsePageRanges,
   type CompressQuality,
   type DirectoryListing,
   type SplitMode,
@@ -268,42 +269,6 @@ export async function compressBrowserPdfFile(sourceFile: File, quality: Compress
   };
 }
 
-function parseRangeToken(token: string) {
-  const match = token.match(/^(\d+)(?:-(\d+))?$/);
-  if (!match) {
-    throw new Error(`Invalid range token "${token}".`);
-  }
-
-  const start = Number(match[1]);
-  const end = Number(match[2] ?? match[1]);
-  if (start <= 0 || end <= 0 || start > end) {
-    throw new Error(`Invalid range token "${token}".`);
-  }
-
-  return { start, end };
-}
-
-function parseRanges(tokens: string[], pageCount: number) {
-  if (tokens.length === 0) {
-    throw new Error("Provide at least one page range.");
-  }
-
-  const ranges = tokens.map(parseRangeToken).sort((left, right) => left.start - right.start);
-
-  for (let index = 0; index < ranges.length; index += 1) {
-    const current = ranges[index];
-    if (current.end > pageCount) {
-      throw new Error(`Range ${current.start}-${current.end} exceeds ${pageCount} page(s).`);
-    }
-
-    if (index > 0 && current.start <= ranges[index - 1].end) {
-      throw new Error("Page ranges cannot overlap.");
-    }
-  }
-
-  return ranges;
-}
-
 export async function splitBrowserPdfFile(sourceFile: File, request: BrowserSplitRequest): Promise<BrowserSplitOutput[]> {
   const sourcePdf = await PDFDocument.load(await sourceFile.arrayBuffer());
   const pageCount = sourcePdf.getPageCount();
@@ -311,7 +276,7 @@ export async function splitBrowserPdfFile(sourceFile: File, request: BrowserSpli
   const jobs =
     request.mode === "per-page"
       ? sourcePdf.getPageIndices().map((pageIndex) => ({ start: pageIndex + 1, end: pageIndex + 1 }))
-      : parseRanges(request.ranges, pageCount);
+      : parsePageRanges(request.ranges, pageCount);
 
   const outputs: BrowserSplitOutput[] = [];
 

@@ -3,7 +3,13 @@ import { promises as fs } from "node:fs";
 import { inflateSync } from "node:zlib";
 import sharp from "sharp";
 import { PDFDocument, PDFName, PDFRawStream, PDFRef, degrees as pdfDegrees } from "pdf-lib";
-import { getBaseName, isSupportedPdfExtension, normalizeFileName, type CompressQuality } from "@/lib/shared";
+import {
+  getBaseName,
+  isSupportedPdfExtension,
+  normalizeFileName,
+  parsePageRanges,
+  type CompressQuality,
+} from "@/lib/shared";
 import { assertSafeFileNames, findAvailablePdfName } from "@/lib/server/fs-utils";
 
 type SplitRequest = {
@@ -25,11 +31,6 @@ const QUALITY_TO_JPEG: Record<CompressQuality, number> = {
   screen: 40,
   ebook: 65,
   printer: 85,
-};
-
-type PageRange = {
-  start: number;
-  end: number;
 };
 
 const MERGE_IMAGE_MAX_DIMENSION = 2200;
@@ -210,51 +211,21 @@ export async function rotatePdfPages(
   return { fileName, pageCount, rotationsApplied: pageRotations.length };
 }
 
-export async function getPageCount(folderPath: string, fileName: string) {
-  assertSafeFileNames([fileName]);
-  const filePath = path.join(folderPath, fileName);
-  const sourceBytes = await fs.readFile(filePath);
-  const pdfDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
-  return pdfDoc.getPageCount();
-}
+export async function getPageCounts(folderPath: string, fileNames: string[]) {
+  assertSafeFileNames(fileNames);
+  const pageCounts: Record<string, number> = {};
 
-function parseRangeToken(token: string): PageRange {
-  const match = token.match(/^(\d+)(?:-(\d+))?$/);
-  if (!match) {
-    throw new Error(`Invalid range token "${token}". Use formats like 3 or 5-8.`);
-  }
-
-  const start = Number(match[1]);
-  const end = Number(match[2] ?? match[1]);
-  if (start <= 0 || end <= 0 || start > end) {
-    throw new Error(`Invalid range token "${token}".`);
-  }
-
-  return { start, end };
-}
-
-function parseRanges(tokens: string[], totalPages: number) {
-  if (tokens.length === 0) {
-    throw new Error("Provide at least one page range.");
-  }
-
-  const parsed = tokens.map(parseRangeToken).sort((left, right) => left.start - right.start);
-
-  for (let index = 0; index < parsed.length; index += 1) {
-    const current = parsed[index];
-    if (current.end > totalPages) {
-      throw new Error(`Range ${current.start}-${current.end} exceeds the document page count (${totalPages}).`);
-    }
-
-    if (index > 0) {
-      const previous = parsed[index - 1];
-      if (current.start <= previous.end) {
-        throw new Error("Page ranges cannot overlap.");
-      }
+  for (const fileName of fileNames) {
+    try {
+      const sourceBytes = await fs.readFile(path.join(folderPath, fileName));
+      const pdfDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+      pageCounts[fileName] = pdfDoc.getPageCount();
+    } catch {
+      // skip files that cannot be read or parsed
     }
   }
 
-  return parsed;
+  return pageCounts;
 }
 
 export async function splitPdfFile({ folderPath, fileName, mode, ranges = [], outputPrefix }: SplitRequest) {
@@ -270,7 +241,7 @@ export async function splitPdfFile({ folderPath, fileName, mode, ranges = [], ou
   const jobs =
     mode === "per-page"
       ? sourcePdf.getPageIndices().map((pageIndex) => ({ start: pageIndex + 1, end: pageIndex + 1 }))
-      : parseRanges(ranges, pageCount);
+      : parsePageRanges(ranges, pageCount);
 
   for (const job of jobs) {
     const nextPdf = await PDFDocument.create();

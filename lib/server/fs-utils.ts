@@ -7,8 +7,28 @@ import {
   isSupportedMergeExtension,
 } from "@/lib/shared";
 
+/**
+ * True when `candidatePath` is `rootPath` itself or one of its descendants.
+ * Both paths must already be resolved/absolute.
+ */
+export function isPathWithinRoot(candidatePath: string, rootPath: string) {
+  const relative = path.relative(rootPath, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function getConfiguredRootPath() {
+  const configured = process.env.PDF_WORK_ROOT?.trim();
+  return configured ? path.resolve(configured) : null;
+}
+
 export async function ensureDirectoryExists(inputPath: string) {
   const resolvedPath = path.resolve(inputPath);
+
+  const rootPath = getConfiguredRootPath();
+  if (rootPath && !isPathWithinRoot(resolvedPath, rootPath)) {
+    throw new Error("This folder is outside the allowed root folder (PDF_WORK_ROOT).");
+  }
+
   const stats = await fs.stat(resolvedPath);
 
   if (!stats.isDirectory()) {
@@ -55,10 +75,14 @@ export async function getDirectoryListing(inputPath: string): Promise<DirectoryL
   directories.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
   files.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
 
+  const parentPath = path.dirname(resolvedPath) === resolvedPath ? null : path.dirname(resolvedPath);
+  const rootPath = getConfiguredRootPath();
+  const visibleParentPath = parentPath && (!rootPath || isPathWithinRoot(parentPath, rootPath)) ? parentPath : null;
+
   return {
     name: path.basename(resolvedPath) || resolvedPath,
     path: resolvedPath,
-    parentPath: path.dirname(resolvedPath) === resolvedPath ? null : path.dirname(resolvedPath),
+    parentPath: visibleParentPath,
     directories,
     files,
   };
@@ -109,10 +133,10 @@ export function assertSafeFileNames(fileNames: string[]) {
   }
 }
 
-export async function findAvailablePdfName(directoryPath: string, requestedName: string) {
+export async function findAvailableFileName(directoryPath: string, requestedName: string, defaultExtension = "") {
   const parsed = path.parse(requestedName);
   const stem = parsed.name || "output";
-  const extension = parsed.ext || ".pdf";
+  const extension = parsed.ext || defaultExtension;
   let candidate = `${stem}${extension}`;
   let index = 1;
 
@@ -127,6 +151,10 @@ export async function findAvailablePdfName(directoryPath: string, requestedName:
       return candidate;
     }
   }
+}
+
+export async function findAvailablePdfName(directoryPath: string, requestedName: string) {
+  return findAvailableFileName(directoryPath, requestedName, ".pdf");
 }
 
 export async function deleteFilesFromDirectory(directoryPath: string, fileNames: string[]) {
