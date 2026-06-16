@@ -178,8 +178,14 @@ profit de cette grille : le code ne porte plus que les *règles*, plus les *déc
   préservés) : `analyze` accepte désormais un dossier de `export-dossier-*.zip` bruts,
   dézippés dans `_extraits/`. Validé bout-en-bout sur de vrais exports.
 
-Reste ouvert : redressement d'orientation OCR plus poussé, et migration du dernier
-défaut de parsing du port Python (second responsable / payeur).
+- **P6** ✅ redressement d'orientation OCR « sans régression » : lecture à 0°
+  d'abord ; on ne tente 90/180/270° que si 0° n'a pas livré de code établissement,
+  et on ne garde une rotation que si elle récupère strictement plus. (Les heuristiques
+  par confiance et `rotateAuto`/OSD de tesseract.js se sont révélées contre-productives
+  ou cassées dans ce build — d'où ce garde-fou.)
+
+Reste ouvert : migration du dernier défaut de parsing du port Python (second
+responsable / payeur).
 
 ## 10. Risques & points d'attention
 
