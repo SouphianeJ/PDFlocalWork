@@ -160,15 +160,23 @@ profit de cette grille : le code ne porte plus que les *règles*, plus les *déc
 
 ---
 
-## 9. Plan de livraison incrémental
+## 9. Plan de livraison incrémental — état
 
-- **P0 (cette livraison)** : brique Python autonome dans le repo, données ignorées,
-  pipeline rejouable, cette spec. ✅
-- **P1** : routes `analyze` + `generate` + helpers TS (parse texte, remplissage,
-  assemblage) + page UI minimale (source → grille → générer) + tests des règles pures.
-- **P2** : page `verify`, `PreviewPanel`, édition fine de la grille, badges anomalies.
-- **P3** : OCR optionnel (tesseract.js) ; sinon fallback manuel documenté.
-- **P4** : packaging (script `npm run inscription`), doc utilisateur.
+- **P0** ✅ brique Python autonome dans le repo, données ignorées, pipeline rejouable, cette spec.
+- **P1** ✅ routes `analyze` + `generate`, helpers TS (`lib/server/inscription/` : extract via
+  unpdf, analyze, generate via pdf-lib+sharp), page `/inscription` (source → grille → générer),
+  tests vitest des règles + parsing. Validé bout-en-bout sur échantillon réel.
+- **P2** ✅ route `verify`, grille **éditable** (édition dépliable par étudiant), badges de
+  confiance, panneau d'anomalies, **preview** des PDF générés via `api/fs/file`.
+- **P3** ✅ OCR optionnel **pur-JS** (`unpdf.extractImages` → `sharp` → `tesseract.js` avec
+  traineddata locaux, sans réseau ni canvas), boutons « Tenter l'OCR » dans la grille.
+  Validé sur un relevé scanné (code établissement + année + département récupérés).
+- **P4** ✅ lien de navigation depuis la home, doc README (feature + env `INSCRIPTION_TESSDATA`),
+  ce statut.
+
+Reste ouvert (hors périmètre P0-P4) : dézippage natif des `.zip` (analyse part de dossiers
+déjà extraits), redressement d'orientation OCR plus poussé, et migration des derniers
+défauts de parsing signalés dans le port Python (second responsable).
 
 ## 10. Risques & points d'attention
 
