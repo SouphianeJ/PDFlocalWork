@@ -44,6 +44,19 @@ function badge(c: string) {
 
 type DeepKey = `bac.${keyof StudentRecord["bac"]}` | `bts.${keyof StudentRecord["bts"]}` | keyof StudentRecord;
 
+type OcrRecovery = {
+  kind: "bac" | "bts";
+  info: (StudentRecord["bac"] | StudentRecord["bts"]) | null;
+  anomalies: string[];
+  chars: number;
+};
+
+function mergeNonEmpty<T extends object>(cur: T, inc: T): T {
+  const out = { ...cur };
+  for (const [k, v] of Object.entries(inc)) if (v !== "" && v != null) (out as Record<string, unknown>)[k] = v;
+  return out;
+}
+
 export function InscriptionWorkbench() {
   const [folderPath, setFolderPath] = useState("");
   const [resolvedFolder, setResolvedFolder] = useState("");
@@ -95,6 +108,26 @@ export function InscriptionWorkbench() {
       setStatus(data.ok ? `Contrôle : ${data.checked}/${data.checked} OK.` : `Contrôle : ${data.issues.length} dossier(s) avec écarts.`);
     } catch (e) {
       setStatus(`Erreur de vérification : ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setBusy(false); }
+  }
+
+  async function runOcr(id: string, kind: "bac" | "bts") {
+    setBusy(true);
+    try {
+      const rec = await postJson<OcrRecovery>("/api/inscription/ocr", { folderPath: resolvedFolder || folderPath, id, kind });
+      if (!rec.info) {
+        setStatus(`OCR ${kind} (${id}) : rien d'exploitable — ${rec.anomalies[0] ?? `${rec.chars} caractères lus`}.`);
+        return;
+      }
+      setStudents((prev) => prev.map((s) => {
+        if (s.id !== id) return s;
+        return kind === "bac"
+          ? { ...s, bac: mergeNonEmpty(s.bac, rec.info as StudentRecord["bac"]) }
+          : { ...s, bts: mergeNonEmpty(s.bts, rec.info as StudentRecord["bts"]) };
+      }));
+      setStatus(`OCR ${kind} (${id}) : ${rec.chars} caractères lus, champs proposés — à relire.`);
+    } catch (e) {
+      setStatus(`OCR : ${e instanceof Error ? e.message : String(e)}`);
     } finally { setBusy(false); }
   }
 
@@ -184,6 +217,17 @@ export function InscriptionWorkbench() {
                               <label style={{ fontSize: "0.72rem", color: "var(--muted)", display: "flex", alignItems: "center", gap: "0.4rem", alignSelf: "end" }}>
                                 <input type="checkbox" checked={s.droitImage} onChange={(e) => update(s.id, "droitImage", e.target.checked)} /> Droit à l&apos;image
                               </label>
+                            </div>
+                            <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+                              {s.bac.source !== "texte" && (
+                                <button onClick={() => runOcr(s.id, "bac")} disabled={busy} style={{ ...ghostBtn, opacity: busy ? 0.5 : 1 }}>Tenter l&apos;OCR du bac</button>
+                              )}
+                              {s.bts.source !== "texte" && (
+                                <button onClick={() => runOcr(s.id, "bts")} disabled={busy} style={{ ...ghostBtn, opacity: busy ? 0.5 : 1 }}>Tenter l&apos;OCR du BTS</button>
+                              )}
+                              {(s.bac.source === "ocr" || s.bts.source === "ocr") && (
+                                <span style={{ fontSize: "0.72rem", color: "#b8860b" }}>champs OCR proposés — à relire</span>
+                              )}
                             </div>
                             {s.anomalies.length > 0 && (
                               <ul style={{ marginTop: "0.6rem", paddingLeft: "1.1rem", fontSize: "0.78rem", color: "var(--muted)" }}>
