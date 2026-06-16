@@ -1,0 +1,97 @@
+p0|Text|'Si vous avez déjà été inscrit à CY CERGY PARIS UNIVERSITÉ précisez votre N Étudiant'|x=963,y=238|
+p0|Text|'NINES ou BEA se trouve sur le relevé de notes du BAC'|x=843,y=252|
+p0|RadioButton|'Masculin'|x=666,y=310|{'normal': ['F'], 'down': ['F', 'Off']}
+p0|RadioButton|'Masculin'|x=774,y=310|{'normal': ['M', 'Off'], 'down': ['M', 'Off']}
+p0|Text|'Nationalité'|x=934,y=301|
+p0|Text|'Nom de naissance'|x=711,y=321|
+p0|Text|'Nom dusage ou marital'|x=734,y=341|
+p0|Text|'Prénom'|x=664,y=362|
+p0|Text|'Prénoms'|x=905,y=364|
+p0|Text|'Date de naissance'|x=702,y=386|
+p0|Text|'Pays de naissance'|x=898,y=384|
+p0|Text|'Code postal'|x=676,y=406|
+p0|Text|'Ville de naissance'|x=895,y=404|
+p0|Text|'Adresse'|x=676,y=470|
+p0|Text|'Code postal_2'|x=680,y=486|
+p0|Text|'Ville'|x=764,y=486|
+p0|Text|'Adresse courriel obligatoire'|x=925,y=506|
+p0|Text|'Année de 1ère inscription en Enseignement Supérieur Français'|x=879,y=571|
+p0|Text|'Année de 1ère inscription en Université Française'|x=826,y=588|
+p0|Text|'Préciser lUniversité'|x=774,y=604|
+p0|Text|'Dép'|x=1091,y=604|
+p0|Text|'Année de 1ère inscription à CY CERGY PARIS UNIVERSITÉ'|x=872,y=620|
+p0|Text|'Année dobtention'|x=699,y=665|
+p0|Text|'Intitulé'|x=821,y=665|
+p0|Text|'Mention'|x=1081,y=665|
+p0|Text|'Nom de létablissement dans lequel sest déroulée la scolarité'|x=875,y=681|
+p0|Text|'Code établissement  voir relevé de notes du bac'|x=822,y=704|
+p0|Text|'N dép'|x=983,y=704|
+p0|Text|'Pays'|x=1046,y=703|
+p0|Text|'Date de naissanceM'|x=734,y=386|
+p0|Text|'Date de naissanceY'|x=766,y=386|
+p0|Text|'num_telephone'|x=684,y=508|
+p0|CheckBox|'SCID'|x=47,y=126|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p0|CheckBox|'PHOT1'|x=47,y=156|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p0|CheckBox|'DIPFM'|x=47,y=173|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p0|CheckBox|'RNB'|x=47,y=221|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p0|CheckBox|'VISA'|x=47,y=334|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p0|Text|'VET administration reserved'|x=884,y=89|
+p0|Text|'Libéllé formation administration reserved'|x=860,y=123|
+p1|Text|'Année dinscription du dernier établissement fréquenté  20'|x=381,y=428|
+p1|Text|'20'|x=426,y=428|
+p1|Text|'Nom de létablissement'|x=143,y=450|
+p1|Text|'Dép_2'|x=67,y=466|
+p1|Text|'Pays_2'|x=141,y=465|
+p1|Text|'Année dobtention du dernier diplôme obtenu  20'|x=326,y=586|
+p1|Text|'20_2'|x=384,y=586|
+p1|Text|'Votre catégorie'|x=696,y=73|
+p1|Text|'Catégorie du père'|x=707,y=96|
+p1|Text|'Catégorie de la mère'|x=833,y=96|
+p1|Text|'Ou du représentant légal la personne exerçant lautorité parentale'|x=905,y=120|
+p1|Text|'Je soussigné e'|x=694,y=420|
+p1|Text|'CERTIFIE EXACT À CergyPontoise le    SIGNATURE DE LÉTUDIANT OBLIGATOIRE'|x=886,y=559|
+p1|CheckBox|'Etudiant'|x=79,y=62|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'Apprenti'|x=79,y=72|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'Formation initiale'|x=81,y=123|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'Formation apprentissage'|x=81,y=134|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|Text|'Texte1'|x=163,y=176|
+p1|Text|'Texte2'|x=69,y=192|
+p1|CheckBox|'B BTS'|x=79,y=285|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'C IUT'|x=79,y=296|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'D CPGE'|x=79,y=306|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'E Ecole doc'|x=79,y=316|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'G Ens sup'|x=79,y=327|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'H université'|x=79,y=337|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'J Ecole s'|x=79,y=347|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'M ESP'|x=79,y=358|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'Q Et'|x=79,y=368|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'R Etal'|x=79,y=378|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'S autre'|x=79,y=388|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'U NO'|x=79,y=399|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'T NOR'|x=79,y=409|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'LY Lycee'|x=79,y=488|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'00 Universite'|x=79,y=498|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'01 BTS'|x=79,y=509|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'03 Ecole sup'|x=79,y=519|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'04 ecole sup etran'|x=79,y=530|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'05 etablissement cult'|x=79,y=540|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'06 établisssement correct'|x=79,y=550|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'10 établissement'|x=79,y=561|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'001 BAC'|x=80,y=612|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'002 DAEU'|x=80,y=623|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'010 BTS'|x=80,y=633|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'011 DUT'|x=80,y=644|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'012 Attestation'|x=80,y=654|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'013 DEUG'|x=80,y=664|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'073 Diplôme'|x=80,y=675|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'040 Licence'|x=80,y=685|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'041 Licence ETRAN'|x=80,y=695|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'050 Maîtrise'|x=80,y=705|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'072 Master'|x=80,y=715|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'500 Diplôme sup'|x=80,y=726|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'501 Diplôme'|x=80,y=736|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'519 Autre'|x=80,y=746|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|CheckBox|'900 Auncune'|x=80,y=758|{'normal': ['Off', 'Oui'], 'down': ['Off', 'Oui']}
+p1|Text|'Certif date JJ'|x=723,y=536|
+p1|Text|'Certif date MM'|x=773,y=536|
+p1|Text|'Certif date YY'|x=822,y=536|

@@ -1,0 +1,9 @@
+# Pipeline d'assemblage des dossiers d'inscription (Python 3.11+)
+PyMuPDF>=1.23        # lecture/rendu PDF + remplissage AcroForm
+pytesseract>=0.3.10  # wrapper OCR (nécessite le binaire Tesseract installé séparément)
+Pillow>=10           # manipulation d'images pour l'OCR
+
+# Dépendance SYSTÈME (hors pip) :
+#   Tesseract OCR 5.x + langues fra/eng/osd
+#   Windows (scoop) : scoop install tesseract ; puis poser fra/eng/osd.traineddata
+#   dans ~/scoop/persist/tesseract/tessdata (voir _ocr/README.md)
