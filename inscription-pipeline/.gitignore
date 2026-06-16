@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────
+# DONNÉES ÉTUDIANTS (PII) — ne JAMAIS committer
+# On ne versionne que les scripts, le template vierge et la doc.
+# ─────────────────────────────────────────────────────────────
+
+# zips d'export 360 et fichiers sources sensibles déposés ici pour test
+*.zip
+parcoursup.json
+getjobid*
+export-student-signup*
+*.csv
+
+# dossiers de travail générés (contiennent noms, INE, adresses, scans…)
+_extraits/
+_final/
+_data/
+_inspect/
+
+# OCR : tout est ignoré sauf la doc
+_ocr/*
+!_ocr/README.md
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
