@@ -10,6 +10,7 @@ import sharp from "sharp";
 import { PDFDocument } from "pdf-lib";
 import type { GenerateResult, StudentRecord } from "@/lib/inscription/types";
 import { findByPrefix } from "@/lib/server/inscription/extract";
+import { codeToDepartment } from "@/lib/inscription/rules";
 
 const TEMPLATE_PATH = path.join(
   process.cwd(), "inscription-pipeline", "Dossier IA 2025-2026 ILEPS LC3 GRENOBLE.pdf",
@@ -47,7 +48,7 @@ function textMap(r: StudentRecord): Record<string, string> {
     "Mention": r.bac.mention,
     "Nom de létablissement dans lequel sest déroulée la scolarité": r.bac.etablissement,
     "Code établissement  voir relevé de notes du bac": r.bac.codeEtablissement,
-    "N dép": r.bac.departement,
+    "N dép": r.bac.departement || codeToDepartment(r.bac.codeEtablissement),
     "Pays": r.bac.annee ? "FRANCE" : "",
     "Année dinscription du dernier établissement fréquenté  20": last2(prevYear(r.bts.session)),
     "20": last2(r.bts.session),
