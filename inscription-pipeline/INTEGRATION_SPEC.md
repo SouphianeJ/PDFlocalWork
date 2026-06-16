@@ -174,9 +174,12 @@ profit de cette grille : le code ne porte plus que les *règles*, plus les *déc
 - **P4** ✅ lien de navigation depuis la home, doc README (feature + env `INSCRIPTION_TESSDATA`),
   ce statut.
 
-Reste ouvert (hors périmètre P0-P4) : dézippage natif des `.zip` (analyse part de dossiers
-déjà extraits), redressement d'orientation OCR plus poussé, et migration des derniers
-défauts de parsing signalés dans le port Python (second responsable).
+- **P5** ✅ dézippage natif (`lib/server/inscription/unzip.ts` via yauzl, noms UTF-8
+  préservés) : `analyze` accepte désormais un dossier de `export-dossier-*.zip` bruts,
+  dézippés dans `_extraits/`. Validé bout-en-bout sur de vrais exports.
+
+Reste ouvert : redressement d'orientation OCR plus poussé, et migration du dernier
+défaut de parsing du port Python (second responsable / payeur).
 
 ## 10. Risques & points d'attention
 

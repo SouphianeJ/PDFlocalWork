@@ -4,7 +4,7 @@ import { z } from "zod";
 import { errorResponse } from "@/lib/server/api-error";
 import { ensureDirectoryExists } from "@/lib/server/fs-utils";
 import { requireLocalRequest } from "@/lib/server/security";
-import { findByPrefix } from "@/lib/server/inscription/extract";
+import { findByPrefix, studentDir } from "@/lib/server/inscription/extract";
 import { ocrRecover } from "@/lib/server/inscription/ocr";
 
 const schema = z.object({
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     const resolved = await ensureDirectoryExists(folderPath);
     if (path.basename(id) !== id) throw new Error("Nested paths are not allowed.");
 
-    const docs = path.join(resolved, id, "Documents");
+    const docs = path.join(await studentDir(resolved, id), "Documents");
     const prefix = kind === "bts" ? "releve-de-notes-de-bac2" : "releve-de-notes-de-bac.";
     const file = await findByPrefix(docs, prefix);
     if (!file) throw new Error(`Aucun relevé ${kind} trouvé pour ${id}.`);

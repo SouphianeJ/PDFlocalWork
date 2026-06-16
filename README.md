@@ -29,9 +29,10 @@ npm run build  # production build
 Dedicated page at `/inscription` (link top-right of the home page) that assembles
 student registration dossiers from [360.ileps.fr](https://360.ileps.fr) exports:
 
-- **Analyze** a folder of already-extracted exports (one subfolder per student with
-  `Synthèse.pdf` + `Documents/`): reads the synthèse and transcripts (text layer),
-  pre-fills identity / bac / BTS with a confidence badge and flags anomalies
+- **Analyze** a folder of exports — either raw `export-dossier-*.zip` files (unzipped
+  automatically into `_extraits/`, UTF-8 names preserved) or already-extracted
+  subfolders (`Synthèse.pdf` + `Documents/`): reads the synthèse and transcripts
+  (text layer), pre-fills identity / bac / BTS with a confidence badge, flags anomalies
 - **Review grid**: edit any field per student before generating
 - **Generate**: fills the CY "Dossier IA" AcroForm (date/signature left blank for the
   student), fuses the ID card recto/verso, de-duplicates the BTS transcript/diploma,

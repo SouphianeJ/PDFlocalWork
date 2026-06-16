@@ -64,7 +64,7 @@ export function InscriptionWorkbench() {
   const [results, setResults] = useState<GenerateResult[] | null>(null);
   const [report, setReport] = useState<VerifyResponse | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
-  const [status, setStatus] = useState("Indiquez le dossier des exports 360 déjà extraits (un sous-dossier par étudiant, avec Synthèse.pdf).");
+  const [status, setStatus] = useState("Indiquez le dossier contenant les exports 360 : fichiers export-dossier-*.zip (dézippés automatiquement) ou sous-dossiers déjà extraits.");
   const [busy, setBusy] = useState(false);
 
   function update(id: string, key: DeepKey, value: string | boolean) {

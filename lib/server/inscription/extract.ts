@@ -29,6 +29,17 @@ export async function pdfTextFromFile(filePath: string): Promise<string> {
   }
 }
 
+/** Dossier d'un étudiant : `<folder>/_extraits/<id>` si présent, sinon `<folder>/<id>`. */
+export async function studentDir(folderPath: string, id: string): Promise<string> {
+  const inExtraits = path.join(folderPath, "_extraits", id);
+  try {
+    if ((await fs.stat(inExtraits)).isDirectory()) return inExtraits;
+  } catch {
+    /* pas sous _extraits */
+  }
+  return path.join(folderPath, id);
+}
+
 /** Cherche dans un dossier le premier fichier dont le nom commence par `prefix`. */
 export async function findByPrefix(dir: string, prefix: string): Promise<string | null> {
   let entries: string[];

@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { PDFDocument } from "pdf-lib";
 import type { GenerateResult, StudentRecord } from "@/lib/inscription/types";
-import { findByPrefix } from "@/lib/server/inscription/extract";
+import { findByPrefix, studentDir } from "@/lib/server/inscription/extract";
 import { codeToDepartment } from "@/lib/inscription/rules";
 
 const TEMPLATE_PATH = path.join(
@@ -123,7 +123,7 @@ const NOM_FICHIER_BAC: Record<string, string> = {
 };
 
 export async function assembleStudent(folderPath: string, record: StudentRecord): Promise<GenerateResult> {
-  const srcDocs = path.join(folderPath, record.id, "Documents");
+  const srcDocs = path.join(await studentDir(folderPath, record.id), "Documents");
   const dst = path.join(folderPath, "_final", record.id);
   await fs.mkdir(dst, { recursive: true });
 

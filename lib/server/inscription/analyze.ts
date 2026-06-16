@@ -11,6 +11,7 @@ import type { StudentRecord } from "@/lib/inscription/types";
 import {
   pdfTextFromFile, findByPrefix, parseSynthese, extraireBac, extraireBts,
 } from "@/lib/server/inscription/extract";
+import { extractExports } from "@/lib/server/inscription/unzip";
 
 // commune de naissance (normalisée) -> code postal (port du dict Python, complété au besoin)
 const CP_NAISSANCE: Record<string, string> = {
@@ -40,18 +41,34 @@ async function hasSynthese(dir: string): Promise<string | null> {
   return (await findByPrefix(dir, "Synthèse.")) ?? (await findByPrefix(dir, "Synthese."));
 }
 
-/** Sous-dossiers étudiants (ou le dossier lui-même s'il contient une Synthèse). */
-async function studentDirs(folderPath: string): Promise<{ id: string; dir: string }[]> {
+async function scanRoot(root: string): Promise<{ id: string; dir: string }[]> {
   const out: { id: string; dir: string }[] = [];
-  const entries = await fs.readdir(folderPath, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch {
+    return out;
+  }
   for (const e of entries.filter((x) => x.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-    const dir = path.join(folderPath, e.name);
+    const dir = path.join(root, e.name);
     if (await hasSynthese(dir)) out.push({ id: e.name, dir });
   }
-  if (out.length === 0 && (await hasSynthese(folderPath))) {
-    out.push({ id: path.basename(folderPath), dir: folderPath });
-  }
   return out;
+}
+
+/**
+ * Sous-dossiers étudiants. Cherche d'abord sous `_extraits/` (où sont posés les
+ * zips dézippés), puis directement dans le dossier ; sinon le dossier lui-même
+ * s'il contient une Synthèse. Dédupliqué par id (priorité à `_extraits/`).
+ */
+async function studentDirs(folderPath: string): Promise<{ id: string; dir: string }[]> {
+  const byId = new Map<string, { id: string; dir: string }>();
+  for (const s of await scanRoot(path.join(folderPath, "_extraits"))) byId.set(s.id, s);
+  for (const s of await scanRoot(folderPath)) if (!byId.has(s.id)) byId.set(s.id, s);
+  if (byId.size === 0 && (await hasSynthese(folderPath))) {
+    byId.set(path.basename(folderPath), { id: path.basename(folderPath), dir: folderPath });
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 async function buildRecord(id: string, dir: string): Promise<StudentRecord> {
@@ -121,6 +138,7 @@ async function buildRecord(id: string, dir: string): Promise<StudentRecord> {
 }
 
 export async function analyzeFolder(folderPath: string): Promise<StudentRecord[]> {
+  await extractExports(folderPath); // dézippe les export-dossier-*.zip si présents
   const dirs = await studentDirs(folderPath);
   const records: StudentRecord[] = [];
   for (const { id, dir } of dirs) records.push(await buildRecord(id, dir));
