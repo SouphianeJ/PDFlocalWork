@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # Auto push/PR désactivés — on-demand uniquement
+  workflow_dispatch:
 
 jobs:
   checks:
